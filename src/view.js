@@ -1,39 +1,59 @@
 import * as THREE from 'three';
-import { createBoss, createCaptain, createTroopGeometry } from './figures.js';
+import { createCaptain, createTroopGeometry } from './figures.js';
+import { loadBrawler } from './brawler.js';
+import { slamRadius, touchdown } from './brawler-motion.js';
 import { createCourseArt } from './course-art.js';
 import { createEffects } from './effects.js';
 import { createSpriteArt } from './sprite-art.js';
 
 const pose = new THREE.Object3D();
-const clockUniform = { value: 0 },
-  strideUniform = { value: 1 };
 function troops(scene, side, detail, capacity) {
   const geo = createTroopGeometry(side, detail);
-  const flashes = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1).setUsage(
+  const motion = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4).setUsage(
     THREE.DynamicDrawUsage,
   );
-  geo.setAttribute('unitGlow', flashes);
+  geo.setAttribute('stepPose', motion);
   const mat = new THREE.MeshPhongMaterial({
     vertexColors: true,
     shininess: 37,
     specular: 0x313744,
   });
+  mat.customProgramCacheKey = () => 'infantry-walk-' + side;
   mat.onBeforeCompile = (shader) => {
-    shader.uniforms.walkTime = clockUniform;
-    shader.uniforms.gaitAmount = strideUniform;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
-        '#include <common>\nattribute float unitGlow; varying float vGlow; uniform float walkTime; uniform float gaitAmount;',
+        `#include <common>
+        attribute float limb;
+        attribute vec4 stepPose;
+        varying float vGlow;
+        const float facing = ${side === 'red' ? '1.0' : '-1.0'};
+        mat2 swingJoint() {
+          float arm = step(1.5,abs(limb));
+          float s = facing * sign(limb) * stepPose.y * mix(-.79,.78,arm);
+          float c = sqrt(max(.01,1.0-s*s));
+          return mat2(c,s,-s,c);
+        }`,
+      )
+      .replace(
+        '#include <beginnormal_vertex>',
+        `#include <beginnormal_vertex>
+        mat2 jointTurn = swingJoint();
+        objectNormal.yz = jointTurn * objectNormal.yz;`,
       )
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-      vGlow=unitGlow; float phase=walkTime*10.2 + float(gl_InstanceID)*2.39996;
-      float gait=sin(phase + (position.x<0.0 ? 3.14159 : 0.0));
-      float foot=(1.0-smoothstep(0.14,0.39,position.y))*gaitAmount;
-      transformed.z += gait*.105*foot;
-      transformed.y += max(0.0,gait)*.054*foot + abs(sin(phase))*.019*gaitAmount;`,
+        vGlow = stepPose.x;
+        float arm = step(1.5,abs(limb));
+        float leg = step(.5,abs(limb))*(1.0-arm);
+        float lift = limb<0.0 ? stepPose.w : stepPose.z;
+        float pivot = mix(.29,.438,arm);
+        transformed.yz = jointTurn * (position.yz-vec2(pivot,0.0))+vec2(pivot,0.0);
+        float boot = leg*(1.0-smoothstep(.085,.28,position.y));
+        transformed.y += .084*lift*boot + .022*stepPose.y*stepPose.y;
+        transformed.z -= facing*.064*lift*boot;
+        transformed.x += stepPose.y * (.019*position.y + sign(limb)*arm*.018);`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vGlow;')
@@ -54,21 +74,28 @@ function troops(scene, side, detail, capacity) {
     begin() {
       count = 0;
     },
-    put(x, y, z, scale, glow = 0, rx = 0, ry = 0, rz = 0) {
+    put(x, y, z, scale, glow = 0, rx = 0, ry = 0, rz = 0, phase = 0, gait = 0) {
       if (count >= capacity) return;
       pose.position.set(x, y, z);
       pose.rotation.set(rx, ry, rz);
       pose.scale.setScalar(scale);
       pose.updateMatrix();
       mesh.setMatrixAt(count, pose.matrix);
-      flashes.setX(count, glow);
+      const lift = Math.cos(phase);
+      motion.setXYZW(
+        count,
+        glow,
+        Math.sin(phase) * gait,
+        Math.max(0, lift) ** 2 * gait,
+        Math.max(0, -lift) ** 2 * gait,
+      );
       count++;
     },
     end() {
       mesh.count = count;
       mesh.visible = count > 0;
       mesh.instanceMatrix.needsUpdate = true;
-      flashes.needsUpdate = true;
+      motion.needsUpdate = true;
     },
   };
 }
@@ -156,9 +183,15 @@ export function makeView(canvas, stage) {
   scene.add(edge);
   const camera = new THREE.PerspectiveCamera(41, 1, 0.15, 150),
     world = new THREE.Vector3();
-  const captain = createCaptain(),
-    bosses = [createBoss()];
-  scene.add(captain.root, bosses[0].root);
+  const captain = createCaptain();
+  scene.add(captain.root);
+  const warning = footRing(slamRadius, slamRadius - 0.055, 0xff8e36, 0.82, scene);
+  const countdown = footRing(slamRadius, slamRadius - 0.115, 0xffc45d, 0.38, scene);
+  let boss;
+  const modelReady = loadBrawler().then((model) => {
+    boss = model;
+    scene.add(model.root);
+  });
   const blue = troops(scene, 'blue', 'near', 180),
     close = troops(scene, 'red', 'near', 900),
     far = troops(scene, 'red', 'far', 1200);
@@ -168,7 +201,7 @@ export function makeView(canvas, stage) {
   const course = createCourseArt(scene),
     effects = createEffects(scene);
   let sprites = null;
-  const assets = createSpriteArt(scene)
+  const spritesReady = createSpriteArt(scene)
     .then((result) => {
       sprites = result;
       return true;
@@ -177,6 +210,7 @@ export function makeView(canvas, stage) {
       console.warn('角色贴图加载失败，已使用 3D 模型', error);
       return false;
     });
+  const assets = Promise.all([modelReady, spritesReady]).then(([, loadedSprites]) => loadedSprites);
   let cameraX = -3.72,
     shake = 0,
     width = 1,
@@ -194,10 +228,7 @@ export function makeView(canvas, stage) {
   resize();
   function draw(s, time, dt, advance, mode) {
     if (!sprites) mode = '3d';
-    const variant=s.round%3;
-    if(!bosses[variant]){bosses[variant]=createBoss(variant);scene.add(bosses[variant].root);}
-    for(const model of bosses)if(model)model.root.visible=false;
-    const boss=bosses[variant];
+    const variant = s.round % 3;
     const playing = s.playing,
       is3d = mode !== 'ai';
     const mix = 1 - Math.exp(-8.5 * dt);
@@ -211,8 +242,8 @@ export function makeView(canvas, stage) {
     camera.position.set(cameraX + jx, 15.0 + jy - finishFocus * 1.2, 13.2 + focusZ);
     camera.lookAt(cameraX + 0.06 + jx, 0.12, -7.45 + focusZ);
     camera.updateMatrixWorld();
-    clockUniform.value = time;
-    strideUniform.value = playing ? 1 : 0.13;
+    const walk = playing ? 1 : 0;
+    const step = time * 10.8;
     course.update(s);
     shade.begin();
     blue.begin();
@@ -222,13 +253,36 @@ export function makeView(canvas, stage) {
       for (const e of c.units) {
         if (!e.alive || e.z < -61) continue;
         if (is3d) {
-          (e.z < -18 ? far : close).put(e.x, 0, e.z, e.size, 0, 0, 0.06 * Math.sin(e.phase), 0);
+          (e.z < -18 ? far : close).put(
+            e.x,
+            0,
+            e.z,
+            e.size,
+            0,
+            0,
+            0.06 * Math.sin(e.phase),
+            0,
+            step + e.phase,
+            walk,
+          );
         }
         if (e.z >= -32) shade.put(e.x, e.z, 0.64);
       }
     for (const e of s.runners) {
       if (!e.alive) continue;
-      if (mode === '3d') close.put(e.x, 0, e.z, e.size, 0, 0, 0.15 * Math.sin(e.phase), 0);
+      if (mode === '3d')
+        close.put(
+          e.x,
+          0,
+          e.z,
+          e.size,
+          0,
+          0,
+          0.15 * Math.sin(e.phase),
+          0,
+          step * 1.18 + e.phase,
+          walk,
+        );
       shade.put(e.x, e.z, 0.67);
     }
     for (const a of s.allies) {
@@ -239,7 +293,18 @@ export function makeView(canvas, stage) {
           0.45 * Math.min(1, a.age / 0.15) +
           Math.sin(Math.PI * Math.min(1, a.age / 0.25)) * 0.18;
       if (mode === '3d')
-        blue.put(a.x, 0, a.z, scale, Math.max(0, 1 - a.age * 2.8), 0, -s.velocity * 0.014, 0);
+        blue.put(
+          a.x,
+          0,
+          a.z,
+          scale,
+          Math.max(0, 1 - a.age * 2.8),
+          0,
+          -s.velocity * 0.014,
+          0,
+          step + a.phase,
+          walk,
+        );
       shade.put(a.x, a.z, 0.71 * scale);
     }
     for (const a of s.merging) {
@@ -286,23 +351,35 @@ export function makeView(canvas, stage) {
       merge: Math.max(s.mergeGlow, s.hurt * 0.62),
       lean: THREE.MathUtils.clamp(s.velocity / 9, -1, 1),
     });
-    boss.root.visible = is3d || variant!==0;
-    const drop=win?THREE.MathUtils.smoothstep(s.endTime,.25,.92):0;
-    const bounce=win&&s.endTime>.92?Math.sin((s.endTime-.92)*19)*Math.exp(-9*(s.endTime-.92)):0;
-    boss.root.position.set(s.boss.x-.26*drop,.27*drop+Math.max(0,bounce)*.16,s.boss.z-.62*drop);
-    boss.root.rotation.set(
-      -1.49*drop+.13*bounce,
-      0,
-      -.30*drop,
+    const b = s.boss;
+    const drop = win ? THREE.MathUtils.smoothstep(s.endTime, 0.25, 0.92) : 0;
+    const bounce =
+      win && s.endTime > 0.92
+        ? Math.sin((s.endTime - 0.92) * 19) * Math.exp(-9 * (s.endTime - 0.92))
+        : 0;
+    const lift = b.lift * (win ? 1 - THREE.MathUtils.smoothstep(s.endTime, 0, 0.3) : 1);
+    boss.root.position.set(
+      b.x - 0.26 * drop,
+      lift + 0.27 * drop + Math.max(0, bounce) * 0.16,
+      b.z - 0.62 * drop,
     );
-    boss.animate({
+    boss.root.rotation.set(-1.49 * drop + 0.13 * bounce, 0, -0.3 * drop);
+    boss.pose({
       time,
-      run: playing ? (s.boss.active ? 0.91 : 0.45) : 0.12,
-      slam: s.boss.slam,
-      hit: s.boss.hit, defeat:win?s.endTime:0,
+      walk: playing ? (b.active ? 1 : 0.82) : 0,
+      attack: b.attackT,
+      hit: b.hit,
+      defeat: win ? s.endTime : 0,
+      variant,
     });
+    warning.visible = countdown.visible = playing && b.attackT > 0 && b.attackT < touchdown;
+    if (warning.visible) {
+      warning.position.set(b.landX, 0.047, b.landZ);
+      countdown.position.set(b.landX, 0.051, b.landZ);
+      countdown.scale.setScalar(0.3 + 0.7 * THREE.MathUtils.smoothstep(b.attackT, 0, touchdown));
+    }
     if (!dead) shade.put(s.x, s.captainZ, 1.3 * mainSize);
-    shade.put(s.boss.x,s.boss.z-drop,3.9,1.12+drop*.65);
+    shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65);
     for (const r of [glow, ring]) {
       r.visible = !dead;
       r.position.set(s.x, 0.048, s.captainZ);

@@ -13,7 +13,7 @@ const dlg = $('veil'),
 const artNames = { hybrid: '混合', ai: 'AI 贴图', '3d': '纯 3D' };
 const artDescriptions = {
   hybrid: '随队小兵和冲锋红兵用 AI 角色图，队长、Boss 和密集兵阵用 3D。',
-  ai: '四种角色都使用 AI 角色图，赛道、弹道和碰撞保留 3D。',
+  ai: '队长和小兵使用 AI 角色图，Boss 使用原画建模。',
   '3d': '所有角色都使用 3D 模型，可看清跑动、炮身后坐和双拳砸地。',
 };
 const coarse = matchMedia('(pointer:coarse)').matches;
@@ -129,10 +129,10 @@ function showPanel(which) {
   }
   if (which === 'result') {
     const win = battle.phase === 'won';
-    $('dialogTitle').textContent = win ? '突破成功' : battle.lossReason === 'wall' ? '队长出局' : battle.lossReason === 'breach' ? '防线失守' : '小队全灭';
+    $('dialogTitle').textContent = win ? '突破成功' : ['wall', 'slam'].includes(battle.lossReason) ? '队长出局' : battle.lossReason === 'breach' ? '防线失守' : '小队全灭';
     $('detail').textContent = win
       ? `击败 Boss，击退 ${battle.score} 名红兵。`
-      : battle.lossReason==='wall' ? '队长被硬墙推出了跑道。' : battle.lossReason==='breach' ? 'Boss 突破了防线。' : battle.boss.active
+      : battle.lossReason==='wall' ? '队长被硬墙推出了跑道。' : battle.lossReason==='breach' ? 'Boss 突破了防线。' : battle.lossReason==='slam' ? '队长被 Boss 的落地冲击击倒。' : battle.boss.active
         ? `Boss 还剩 ${Math.ceil(battle.boss.hp)} / 800 生命`
         : '红兵突破了队伍。';
     $('continue').textContent = '再玩一次';
@@ -261,7 +261,7 @@ function hud() {
   const b = battle.boss;
   bossBar.hidden = !b.active || battle.phase === 'won';
   if (!bossBar.hidden) {
-    const p = view.project(b.x, 4.91, b.z);
+    const p = view.project(b.x, 4.91 + b.lift * 1.38, b.z);
     bossBar.style.transform = `translate(${p.x.toFixed(1)}px,${Math.max(53, p.y).toFixed(1)}px)`;
   }
   if (b.hp !== lastHP) {
@@ -277,7 +277,7 @@ function hud() {
     if (battle.wall.hp <= 0 && tip.textContent === '击碎硬墙，或向左避开') tip.hidden = true;
     if (b.active && !toldBoss) {
       toldBoss = true;
-      message('对准 Boss，持续开火', 1.7);
+      message('对准 Boss 开火，跳起时避开落点', 2.2);
     }
     if (!tip.hidden && battle.elapsed >= tipUntil) tip.hidden = true;
   }

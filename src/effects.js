@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { pulseRound, sampleFlight } from './projectiles.js';
+import { slamRadius } from './brawler-motion.js';
 
 const TILE = 128;
 const TILES = 4;
@@ -366,6 +368,83 @@ const between = (low, high) => low + (high - low) * Math.random();
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const TAU = Math.PI * 2;
 
+// One camera-facing ribbon per live round, shaped from points on its actual flight.
+function makeTraces(scene, capacity) {
+  const strip = new THREE.PlaneGeometry(1, 1, 5, 1);
+  const geo = new THREE.InstancedBufferGeometry().copy(strip);
+  const starts = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+  const ends = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 3), 3);
+  const styles = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4);
+  for (const [name, attr] of [
+    ['trailStart', starts],
+    ['trailEnd', ends],
+    ['trailStyle', styles],
+  ]) {
+    geo.setAttribute(name, attr.setUsage(THREE.DynamicDrawUsage));
+  }
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      attribute vec3 trailStart, trailEnd;
+      attribute vec4 trailStyle;
+      varying vec2 vUv;
+      varying vec2 vStyle;
+      void main() {
+        float t = uv.x;
+        vec3 path = trailEnd - trailStart;
+        vec3 center = mix(trailStart, trailEnd, t);
+        center.y += 4.0*t*(1.0-t)*trailStyle.x;
+        path.y += 4.0*(1.0-2.0*t)*trailStyle.x;
+        vec3 side = normalize(cross(path, cameraPosition-center));
+        float radius = trailStyle.y * mix(0.19,1.0,smoothstep(0.0,0.83,t));
+        vec3 vertex = center + side*(uv.y*2.0-1.0)*radius;
+        gl_Position = projectionMatrix*viewMatrix*vec4(vertex,1.0);
+        vUv=uv; vStyle=trailStyle.zw;
+      }`,
+    fragmentShader: `
+      varying vec2 vUv;
+      varying vec2 vStyle;
+      void main() {
+        float edge=abs(vUv.y*2.0-1.0);
+        float pulse=step(0.5,vStyle.x)*(1.0-step(1.5,vStyle.x));
+        float flame=step(1.5,vStyle.x);
+        float gap=smoothstep(0.33,0.39,vUv.x)*(1.0-smoothstep(0.48,0.55,vUv.x));
+        vec3 rim=mix(vec3(.012,.39,.96),vec3(.018,.67,.62),pulse);
+        rim=mix(rim,vec3(.97,.24,.026),flame);
+        vec3 core=mix(vec3(.70,1.0,1.0),vec3(1.0,.84,.40),flame);
+        float alpha=(1.0-smoothstep(.64,1.0,edge))*smoothstep(0.0,.28,vUv.x);
+        gl_FragColor=vec4(mix(rim,core,(1.0-smoothstep(.10,.61,edge))*vUv.x),alpha*vStyle.y*(1.0-.94*pulse*gap));
+        #include <colorspace_fragment>
+      }`,
+  });
+  material.forceSinglePass = true;
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 4;
+  geo.instanceCount = 0;
+  scene.add(mesh);
+  return {
+    write(i, a, b, bend, width, style, alpha) {
+      starts.setXYZ(i, a.x, a.y, a.z);
+      ends.setXYZ(i, b.x, b.y, b.z);
+      styles.setXYZW(i, bend, width, style, alpha);
+    },
+    flush(count) {
+      geo.instanceCount = count;
+      mesh.visible = count > 0;
+      if (!count) return;
+      for (const attr of [starts, ends, styles]) {
+        attr.clearUpdateRanges();
+        attr.addUpdateRange(0, count * attr.itemSize);
+        attr.needsUpdate = true;
+      }
+    },
+  };
+}
+
 export function createEffects(scene) {
   const marks = makeSpriteBatch(scene, 650);
   const shots = batchOf(
@@ -525,7 +604,7 @@ export function createEffects(scene) {
     }
   }
 
-  function wallShards(x, y, z, amount, scale) {
+  function debris(x, y, z, amount, scale, radial = false) {
     for (let i = 0; i < amount && chips.length < shards.instanceMatrix.count; i++) {
       const p = chipPool.pop() || {};
       p.x = x + between(-1.75, 1.75) * scale;
@@ -534,6 +613,14 @@ export function createEffects(scene) {
       p.vx = between(-2.8, 2.8);
       p.vz = between(-1.8, 3.5);
       p.vy = between(2.2, 5.2);
+      if (radial) {
+        const angle = ((i + Math.random()) * TAU) / amount;
+        const speed = between(2.2, 4.4);
+        p.x = x + Math.cos(angle) * 0.48;
+        p.z = z + Math.sin(angle) * 0.48;
+        p.vx = Math.cos(angle) * speed;
+        p.vz = Math.sin(angle) * speed;
+      }
       p.size = between(0.085, 0.245) * scale;
       p.stretch = between(0.52, 1.65);
       p.rx = between(-2, 2);
@@ -550,13 +637,13 @@ export function createEffects(scene) {
     const s = clamp(strength, 0.62, 2.05);
     switch (kind) {
       case 'finisher':
-        scatterSparks(x,y,z,1.35,16);
-        add(sprites.flash,x,y,z,.65,1.45,.13,{color:palette.pearl});
+        scatterSparks(x, y, z, 1.35, 16);
+        add(sprites.flash, x, y, z, 0.65, 1.45, 0.13, { color: palette.pearl });
         return;
       case 'hit':
         if (hitCredit < 1) return;
         hitCredit--;
-        scatterSparks(x,y,z,.48,3);
+        scatterSparks(x, y, z, 0.48, 3);
         add(sprites.glint, x, y, z, 0.26, 0.47, 0.105, {
           color: palette.aqua,
           angle: between(0, TAU),
@@ -579,16 +666,30 @@ export function createEffects(scene) {
         const slam = kind === 'slam';
         const size = s * (slam ? 1.4 : 1),
           centerY = slam ? 0.16 : Math.max(0.17, y * 0.58);
+        if (slam) {
+          debris(x, 0.04, z, 12, 0.61, true);
+          for (const side of [-1, 1])
+            add(sprites.flash, x + side * 0.57, 0.12, z, 0.58, 0.93, 0.1, { color: palette.pearl });
+        }
         add(sprites.crack, x, 0.035, z, 2.02 * size, 2.33 * size, slam ? 2 : 1.42, {
           flat: true,
           angle: between(0, TAU),
           hold: 0.62,
         });
-        add(sprites.wave, x, 0.065, z, 0.42 * size, (slam ? 4.0 : 3.16) * size, 0.32, {
-          flat: true,
-          color: slam ? palette.gold : palette.pearl,
-          alpha: 0.83,
-        });
+        add(
+          sprites.wave,
+          x,
+          0.065,
+          z,
+          0.42 * size,
+          slam ? (2 * slamRadius) / 0.81 : 3.16 * size,
+          0.32,
+          {
+            flat: true,
+            color: slam ? palette.gold : palette.pearl,
+            alpha: 0.83,
+          },
+        );
         add(sprites.flash, x, centerY, z, 0.6 * size, 1.85 * size, 0.16, {
           color: palette.gold,
           angle: between(0, TAU),
@@ -608,14 +709,14 @@ export function createEffects(scene) {
         scatterSparks(x, Math.max(0.4, y), z, 0.59 * s, 3);
         return;
       case 'wallBreak':
-        wallShards(x, 0.24, z, 22, Math.min(1.17, s));
+        debris(x, 0.24, z, 22, Math.min(1.17, s));
         add(sprites.flash, x, 0.72, z, 0.85 * s, 2.8 * s, 0.19, { color: palette.pearl });
         add(sprites.wave, x, 0.062, z, 0.6, 4.7, 0.38, { flat: true, color: palette.dust });
         for (let i = -1; i <= 1; i++) scatterSmoke(x + i * 1.17, 0.3, z, 0.98, 4, palette.steel);
         scatterSparks(x, 0.8, z, s, 7);
         return;
       case 'plus': {
-        add(sprites.wave,x,.09,z,.12,1.28,.23,{flat:true,color:palette.aqua});
+        add(sprites.wave, x, 0.09, z, 0.12, 1.28, 0.23, { flat: true, color: palette.aqua });
         const base = Math.max(0, y);
         add(sprites.goldWave, x, 0.055, z, 0.22, 0.96, 0.34, {
           flat: true,
@@ -639,7 +740,7 @@ export function createEffects(scene) {
         return;
       }
       case 'merge': {
-        add(sprites.goldWave,x,.12,z,2.15,.32,.27,{flat:true,color:palette.gold});
+        add(sprites.goldWave, x, 0.12, z, 2.15, 0.32, 0.27, { flat: true, color: palette.gold });
         const floorSize = clamp(s * 1.55, 1.5, 2.5);
         add(sprites.goldWave, x, 0.061, z, 0.38, floorSize, 0.46, {
           flat: true,
@@ -689,61 +790,72 @@ export function createEffects(scene) {
 
   const forward = new THREE.Vector3(0, 0, -1);
   const heading = new THREE.Vector3();
+  const tail = new THREE.Vector3();
+  const mid = new THREE.Vector3();
+  const traces = makeTraces(scene, 384);
   function packProjectiles(list, dt) {
     let bulletCount = 0,
-      rocketCount = 0;
-    pose.rotation.set(0, 0, 0);
+      rocketCount = 0,
+      trailCount = 0;
     for (const p of list) {
-      heading.set(p.dirX, p.dirY, p.dirZ);
+      const rocket = p.kind === 'rocket';
+      const pulse = p.profile === pulseRound;
+      const tailDistance = Math.max(0, p.distance - p.profile.tail + p.afterHit * p.profile.speed);
+      sampleFlight(p, tailDistance, tail);
+      if (p.distance - tailDistance > 0.012 && trailCount < 384) {
+        sampleFlight(p, (tailDistance + p.distance) * 0.5, mid);
+        const bend = mid.y - (tail.y + p.y) * 0.5;
+        const fade = p.range > 4 ? clamp((p.range - tailDistance) / 1.6, 0, 1) : 1;
+        traces.write(
+          trailCount++,
+          tail,
+          p,
+          bend,
+          rocket ? 0.093 : pulse ? 0.066 : 0.052,
+          rocket ? 2 : pulse ? 1 : 0,
+          fade * 0.91,
+        );
+      }
+      if (p.finished) continue;
+      sampleFlight(p, p.distance + 0.015, mid);
+      heading.set(mid.x - p.x, mid.y - p.y, mid.z - p.z).normalize();
       pose.quaternion.setFromUnitVectors(forward, heading);
-      if (p.kind === 'shot') {
-        if (bulletCount >= shots.instanceMatrix.count) continue;
-        pose.position.set(p.x, p.y, p.z);
-        pose.scale.set(1.22, 1.22, 1.55);
+      pose.position.set(p.x, p.y, p.z);
+      if (!rocket && bulletCount < shots.instanceMatrix.count) {
+        pose.scale.set(pulse ? 1.54 : 1.13, pulse ? 1.54 : 1.13, pulse ? 0.62 : 0.83);
         pose.updateMatrix();
         shots.setMatrixAt(bulletCount++, pose.matrix);
-        marks.write(p.x - heading.x * .12, p.y - heading.y * .12, p.z - heading.z * .12, 0.155, 0.92, true, sprites.glow, palette.blue, 0.66);
-      } else if (p.kind === 'rocket' && rocketCount < rockets.instanceMatrix.count) {
-        const size = Math.min(1.54, 1 + 0.045 * Math.sqrt(Math.max(0, p.power || 0)));
-        const age = p.age || 0;
-        pose.position.set(p.x, p.y, p.z);
+        if (p.age < 0.045)
+          marks.write(
+            p.startX,
+            p.startY,
+            p.startZ,
+            0.21,
+            0.21,
+            false,
+            sprites.flash,
+            palette.aqua,
+            0.65 * (1 - p.age / 0.045),
+          );
+      } else if (rocket && rocketCount < rockets.instanceMatrix.count) {
+        const size = 0.63 + Math.min(0.19, p.power * 0.055);
         pose.scale.setScalar(size);
         pose.updateMatrix();
         rockets.setMatrixAt(rocketCount, pose.matrix);
-        pose.scale.z *= 0.91 + 0.11 * Math.sin(age * 67);
+        pose.scale.z *= 0.9;
         pose.updateMatrix();
         flames.setMatrixAt(rocketCount++, pose.matrix);
-        marks.write(
-          p.x - heading.x * .73 * size,
-          p.y - heading.y * .73 * size,
-          p.z - heading.z * .73 * size,
-          0.7 * size,
-          1.9 * size,
-          true,
-          sprites.glow,
-          palette.orange,
-          0.64,
-        );
-        if (dt > 0 && Math.floor(age * 14) !== Math.floor(Math.max(0, age - dt) * 14)) {
-          add(
-            sprites.smoke,
-            p.x - heading.x * size + between(-0.1, 0.1),
-            p.y - heading.y * size,
-            p.z - heading.z * size,
-            0.22 * size,
-            0.57 * size,
-            0.29,
-            {
-              color: palette.smoke,
-              alpha: 0.39,
-              vy: 0.16,
-              vz: 0.47,
-              angle: between(0, TAU),
-            },
-          );
+        if (dt > 0 && Math.floor(p.age * 16) !== Math.floor(Math.max(0, p.age - dt) * 16)) {
+          add(sprites.smoke, tail.x, tail.y, tail.z, 0.14 * size, 0.39 * size, 0.19, {
+            color: palette.dust,
+            alpha: 0.38,
+            vy: 0.19,
+            world: false,
+          });
         }
       }
     }
+    traces.flush(trailCount);
     shots.count = bulletCount;
     rockets.count = flames.count = rocketCount;
     shots.visible = bulletCount > 0;
@@ -844,6 +956,7 @@ export function createEffects(scene) {
     chipPool.push(...chips);
     particles.length = chips.length = 0;
     hitCredit = 5;
+    traces.flush(0);
     for (const mesh of [shots, rockets, flames, shards]) {
       mesh.count = 0;
       mesh.visible = false;
