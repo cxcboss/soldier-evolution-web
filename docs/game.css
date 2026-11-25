@@ -116,6 +116,22 @@ button:active {
     sans-serif;
   font-variant-numeric: tabular-nums;
 }
+#level {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.buffs {
+  position: absolute;
+  left: 14px;
+  top: calc(max(11px, env(safe-area-inset-top)) + 41px);
+  color: white;
+  background: #143049db;
+  border-radius: 9px;
+  padding: 4px 8px;
+  font-size: 12px;
+  pointer-events: none;
+}
 .readings svg {
   width: 17px;
   height: 17px;

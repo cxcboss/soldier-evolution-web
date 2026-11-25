@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { pulseRound, sampleFlight } from './projectiles.js';
+import { plasmaRound, pulseRound, sampleFlight } from './projectiles.js';
 import { slamRadius } from './brawler-motion.js';
 
 const TILE = 128;
@@ -636,6 +636,22 @@ export function createEffects(scene) {
   function burst(kind, x, y, z, strength = 1) {
     const s = clamp(strength, 0.62, 2.05);
     switch (kind) {
+      case 'cardHit':
+        add(sprites.glint, x, y, z + 0.1, 0.35, 0.7, 0.12, {color: palette.pearl});
+        scatterSparks(x, y, z, 0.45, 3);
+        return;
+      case 'supplyBreak':
+        add(sprites.flash, x, y, z, 0.46, 1.45, 0.13, {color: palette.pearl});
+        add(sprites.wave, x, 0.07, z, 0.4, 2.45, 0.32, {flat: true, color: palette.aqua});
+        scatterSparks(x, y, z, 0.86, 10);
+        return;
+      case 'shieldHit':
+        add(sprites.wave, x, 0.1, z, 0.4, 1.75, 0.26, {flat: true, color: palette.aqua});
+        add(sprites.glint, x, y, z, 0.26, 0.68, 0.14, {color: palette.pearl});
+        return;
+      case 'hostileMuzzle':
+        add(sprites.flash, x, y, z, 0.32, 0.63, 0.14, {color: palette.orange});
+        return;
       case 'finisher':
         scatterSparks(x, y, z, 1.35, 16);
         add(sprites.flash, x, y, z, 0.65, 1.45, 0.13, { color: palette.pearl });
@@ -799,7 +815,8 @@ export function createEffects(scene) {
       trailCount = 0;
     for (const p of list) {
       const rocket = p.kind === 'rocket';
-      const pulse = p.profile === pulseRound;
+      const plasma = p.profile === plasmaRound;
+      const pulse = p.profile === pulseRound || plasma;
       const tailDistance = Math.max(0, p.distance - p.profile.tail + p.afterHit * p.profile.speed);
       sampleFlight(p, tailDistance, tail);
       if (p.distance - tailDistance > 0.012 && trailCount < 384) {
@@ -811,7 +828,7 @@ export function createEffects(scene) {
           tail,
           p,
           bend,
-          rocket ? 0.093 : pulse ? 0.066 : 0.052,
+          rocket ? 0.093 : plasma ? 0.092 : pulse ? 0.066 : 0.052,
           rocket ? 2 : pulse ? 1 : 0,
           fade * 0.91,
         );
@@ -867,11 +884,15 @@ export function createEffects(scene) {
     }
   }
 
-  function update(dt, worldAdvance, projectiles) {
+  function update(dt, worldAdvance, projectiles, incoming = []) {
     const step = clamp(dt, 0, 0.12);
     hitCredit = Math.min(6, hitCredit + step * 21);
     marks.clear();
     packProjectiles(projectiles, step);
+    for (const p of incoming) {
+      marks.write(p.x - p.vx * 0.038, p.y, p.z - p.vz * 0.038, 0.30, 0.52, false, sprites.glow, palette.fire, 0.8);
+      marks.write(p.x, p.y, p.z, 0.30, 0.34, false, sprites.glint, palette.gold, 0.98);
+    }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
       p.age += step;

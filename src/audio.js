@@ -5,6 +5,9 @@ const cues = {
   smallShot: { duration: 0.08, gain: 0.076, interval: 0.105 },
   impact: { duration: 0.31, gain: 0.28, interval: 0.12 },
   wallHit: { duration: 0.16, gain: 0.16, interval: 0.13 },
+  cardHit: { duration: 0.1, gain: 0.11, interval: 0.13 },
+  supplyBreak: { duration: 0.25, gain: 0.21, interval: 0.10 },
+  shieldHit: { duration: 0.16, gain: 0.14, interval: 0.14 },
   wallBreak: { duration: 0.43, gain: 0.35, interval: 0.4 },
   plus: { duration: 0.22, gain: 0.18, interval: 0.105 },
   merge: { duration: 0.41, gain: 0.23, interval: 0.18 },
@@ -55,6 +58,17 @@ function buildSound(context, kind) {
     tone(start, duration * 0.35, hz * 2.52, hz * 2.5, level * 0.11);
   }
   switch (kind) {
+    case 'cardHit':
+      bell(0, 0.09, 1150, 0.42);
+      break;
+    case 'supplyBreak':
+      noise(0, 0.068, 4200, 0.51);
+      bell(0.015, 0.18, 906, 0.44);
+      bell(0.07, 0.16, 1326, 0.36);
+      break;
+    case 'shieldHit':
+      tone(0, 0.15, 740, 365, 0.56, 0.18);
+      break;
     case 'muzzle':
       tone(0, 0.2, 213, 61, 0.76, 0.48);
       noise(0, 0.093, 2400, 0.64);

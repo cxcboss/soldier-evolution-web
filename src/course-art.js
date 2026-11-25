@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { supplies } from './supplies.js';
 
 const ROAD_WIDTH = 13.2;
 const NEAR = 14;
@@ -54,6 +55,16 @@ function makeDeckTexture() {
     }
   }
   ctx.putImageData(pixels, 0, 0);
+  ctx.fillStyle = 'rgba(81,74,91,.21)';
+  ctx.fillRect(0, 0, canvas.width, 1.5);
+  ctx.fillStyle = 'rgba(244,236,233,.36)';
+  ctx.fillRect(0, 2, canvas.width, 1);
+  for (const x of [7, 249]) {
+    for (const y of [9, 183]) {
+      ctx.fillStyle = '#a59aa4';
+      ctx.fillRect(x - 1, y - 1, 2.5, 2.5);
+    }
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapT = THREE.RepeatWrapping;
@@ -89,7 +100,7 @@ function makeRoad(group) {
 }
 
 function makeSignTexture(type) {
-  const merge = type === 'merge';
+  const merge = supplies[type].tone === 'gold';
   const canvas = document.createElement('canvas');
   canvas.width = merge ? 512 : 384;
   canvas.height = 208;
@@ -103,9 +114,9 @@ function makeSignTexture(type) {
   gradient.addColorStop(1, merge ? '#efbb09' : '#1276d7');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
-  const label = merge ? '升炮' : '+1';
-  const fontSize = merge ? 122 : 147;
-  ctx.font = `900 ${fontSize}px "Arial Rounded MT Bold", "Arial Black", "Helvetica Neue", Arial, sans-serif`;
+  const label = supplies[type].label;
+  const fontSize = supplies[type].count ? 147 : 119;
+  ctx.font = `900 ${fontSize}px "Arial Rounded MT Bold","Arial Black","PingFang SC","Microsoft YaHei",sans-serif`;
   ctx.textAlign = 'center';
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -162,7 +173,7 @@ function castShadow(width, height) {
 }
 
 function gateBatch(group, type, shadowMaterial) {
-  const merge = type === 'merge';
+  const merge = supplies[type].tone === 'gold';
   const w = merge ? 2.65 : 1.82;
   const h = merge ? 1.03 : 0.91;
   const depth = 0.17;
@@ -191,7 +202,7 @@ function gateBatch(group, type, shadowMaterial) {
     new THREE.MeshBasicMaterial({ map: makeSignTexture(type), toneMapped: false }),
     shadowMaterial,
   ];
-  let capacity = 128;
+  let capacity = 16;
   let meshes;
   const transform = new THREE.Matrix4();
   function allocate(nextCapacity) {
@@ -224,7 +235,7 @@ function gateBatch(group, type, shadowMaterial) {
     for (const gate of gates) {
       if ((!gate.active && !(gate.pop<.28)) || gate.type !== type || gate.z < FAR || gate.z >= NEAR) continue;
       const t=gate.active?0:gate.pop/.28;
-      const size=(1+.24*Math.sin(Math.PI*t))*(1-t*t);
+      const size=(1+.24*Math.sin(Math.PI*t)+gate.flash*.065)*(1-t*t);
       transform.makeScale(size,size*(1+.18*Math.sin(t*Math.PI)),size);
       transform.setPosition(gate.x+(.22*(gate.x<0?1:-1))*t, Math.sin(t*Math.PI)*.38,gate.z);
       meshes[0].setMatrixAt(index++, transform);
@@ -232,20 +243,6 @@ function gateBatch(group, type, shadowMaterial) {
     for (const mesh of meshes) mesh.count = index;
     meshes[0].instanceMatrix.needsUpdate = index > 0;
   };
-}
-
-function embossed(points, depth) {
-  const outline = new THREE.Shape();
-  points.forEach(([x, y], i) => (i ? outline.lineTo(x, y) : outline.moveTo(x, y)));
-  outline.closePath();
-  return new THREE.ExtrudeGeometry(outline, {
-    depth,
-    bevelEnabled: true,
-    bevelSegments: 1,
-    bevelSize: 0.033,
-    bevelThickness: 0.03,
-    steps: 1,
-  });
 }
 
 const FRACTURES = [
@@ -381,31 +378,17 @@ function makeWall(group, shadowMaterial) {
   }
   for (const y of [0.084, h - 0.079])
     pieces.push(part(block(w - 0.28, 0.11, 0.43, 0.019), '#898795', 0, y, 0));
-  const plus = [
-    [-0.39, 0.105],
-    [-0.11, 0.105],
-    [-0.11, 0.37],
-    [0.11, 0.37],
-    [0.11, 0.105],
-    [0.39, 0.105],
-    [0.39, -0.105],
-    [0.11, -0.105],
-    [0.11, -0.37],
-    [-0.11, -0.37],
-    [-0.11, -0.105],
-    [-0.39, -0.105],
-  ];
-  const one = [
-    [-0.24, 0.26],
-    [0.025, 0.43],
-    [0.23, 0.43],
-    [0.23, -0.43],
-    [-0.015, -0.43],
-    [-0.015, 0.16],
-    [-0.17, 0.075],
-  ];
-  pieces.push(part(embossed(plus, 0.115), '#a6a4ab', -0.34, 0.81, 0.206));
-  pieces.push(part(embossed(one, 0.115), '#afacb3', 0.42, 0.83, 0.206));
+  const number = document.createElement('canvas');
+  number.width = 256;
+  number.height = 112;
+  const ctx = number.getContext('2d');
+  const numberMap = new THREE.CanvasTexture(number);
+  numberMap.colorSpace = THREE.SRGBColorSpace;
+  const numberPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.79),
+    new THREE.MeshBasicMaterial({map: numberMap, transparent: true, depthWrite: false, toneMapped:false}));
+  numberPanel.position.set(0, 0.84, 0.253);
+  root.add(numberPanel);
+  let lastHp;
   const metal = new THREE.MeshPhongMaterial({
     vertexColors: true,
     shininess: 36,
@@ -427,8 +410,22 @@ function makeWall(group, shadowMaterial) {
     root.visible = Boolean(wall && wall.hp > 0 && wall.z >= FAR && wall.z < NEAR);
     if (!root.visible) return;
     root.position.set(wall.x, 0, wall.z);
+    const hp = Math.ceil(wall.hp);
+    if (hp !== lastHp) {
+      ctx.clearRect(0, 0, number.width, number.height);
+      ctx.font = '900 102px "Arial Black",sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = '#333340';
+      ctx.strokeText(String(hp), 128, 60);
+      ctx.fillStyle = '#f4edf0';
+      ctx.fillText(String(hp), 128, 60);
+      numberMap.needsUpdate = true;
+      lastHp = hp;
+    }
     const fraction = wall.hp / Math.max(1, wall.maxHp);
-    metal.emissiveIntensity = Math.sqrt(THREE.MathUtils.clamp(wall.flash || 0, 0, 1)) * 0.82;
+    metal.emissiveIntensity = Math.sqrt(THREE.MathUtils.clamp(wall.flash || 0, 0, 1)) * 0.35;
     cracks[0].visible = fraction < 0.93;
     cracks[1].visible = fraction <= 0.67;
     cracks[2].visible = fraction <= 0.36;
@@ -447,14 +444,31 @@ export function createCourseArt(scene) {
     depthWrite: false,
     toneMapped: false,
   });
-  const mergeGates = gateBatch(root, 'merge', shadowMaterial);
-  const plusGates = gateBatch(root, 'plus', shadowMaterial);
+  const signs = Object.keys(supplies).map((type) => gateBatch(root, type, shadowMaterial));
+  const meters = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.073, 0.065),
+    new THREE.MeshBasicMaterial(), 80);
+  meters.frustumCulled = false;
+  root.add(meters);
+  const meterTransform = new THREE.Matrix4(), ink = new THREE.Color('#253347'), white = new THREE.Color('#f5fffe');
   const updateWall = makeWall(root, shadowMaterial);
   return {
     update({ distance = 0, gates = [], wall }) {
       deck.offset.y = (distance / 8) % 1;
-      mergeGates(gates);
-      plusGates(gates);
+      for (const updateSign of signs) updateSign(gates);
+      let count = 0;
+      for (const g of gates) {
+        if (!g.active || g.hp >= g.maxHp || g.z < -45 || g.z > NEAR) continue;
+        const width = supplies[g.type].tone === 'gold' ? 2.22 : 1.48;
+        const fill = width * g.hp / g.maxHp;
+        for (const [w, x, z, color] of [[width, g.x, g.z + 0.18, ink],
+          [fill, g.x - (width - fill) / 2, g.z + 0.22, white]]) {
+          meterTransform.makeScale(w, 1, 1).setPosition(x, 0.13, z);
+          meters.setMatrixAt(count, meterTransform);
+          meters.setColorAt(count++, color);
+        }
+      }
+      meters.count = count;
+      if (count) { meters.instanceMatrix.needsUpdate = true; meters.instanceColor.needsUpdate = true; }
       updateWall(wall);
     },
     dispose() {

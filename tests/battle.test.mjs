@@ -14,6 +14,7 @@ function field(emit) {
   const battle = new Battle(emit);
   battle.start();
   battle.columns = [];
+  battle.gates = [];
   battle.allies = [];
   battle.wall.hp = 0;
   return battle;
@@ -130,4 +131,137 @@ test('moving after the windup lets the captain dodge the locked impact', () => {
     for (let i = 0; i < 65; i++) battle.advanceBoss(1 / 60);
     assert.equal(battle.armor, dodge ? 3 : 2);
   }
+});
+
+test('red ranks enter from above the current viewport and march past the moving bridge', () => {
+  for (const entry of [-34.8, -46.2, -56]) {
+    const b = new Battle();
+    b.entryZ = entry;
+    const units = () => [...b.columns.flatMap((col) => col.units), ...b.runners];
+    assert.equal(units().length, 0);
+    assert.equal(b.boss.active, false);
+    b.start();
+    b.x = -5;
+    const seen = new Map();
+    for (let frame = 0; frame < 420; frame++) {
+      b.worldAdvance = 3.65 / 60;
+      b.advanceCrowd(1 / 60);
+      for (const e of units()) {
+        if (!seen.has(e.id)) assert.ok(e.z < entry - 0.65, 'born above the top edge');
+        else assert.ok(e.z - seen.get(e.id) > b.worldAdvance, 'advances even relative to the deck');
+        seen.set(e.id, e.z);
+      }
+      if (frame === 59) assert.ok(Math.max(...units().map((e) => e.z)) < entry + 5);
+    }
+    const band = units().filter((e) => e.z >= entry + 4 && e.z < entry + 25).length;
+    const previousDensity = (21 * 11) / 0.49;
+    assert.ok(
+      band > previousDensity * 0.83 && band < previousDensity * 0.93,
+      'slightly thinner full formations',
+    );
+  }
+});
+
+test('the planted boot follows the bridge, the other swings forward while lifted', async () => {
+  const { marchAngle, sampleFeet, footReach, strideLength } = await import(
+    '../src/infantry-walk.js'
+  );
+  const e = { phase: 0, size: 1.04, marched: 0 };
+  const feet = new Float64Array(3);
+  function pose(cycle) {
+    e.marched = cycle * strideLength * e.size;
+    sampleFeet(marchAngle(e), 1, feet);
+    return { forward: e.marched + feet[0] * footReach * e.size, leftLift: Math.max(0, feet[2]) };
+  }
+  const heel = pose(0.04),
+    toe = pose(0.52),
+    swing = pose(0.8),
+    next = pose(1.04);
+  assert.equal(heel.leftLift, 0);
+  assert.equal(toe.leftLift, 0);
+  assert.ok(Math.abs(toe.forward - heel.forward) < 1e-9);
+  assert.ok(swing.leftLift > 0.85 && swing.forward > toe.forward);
+  assert.ok(Math.abs(next.forward - heel.forward - strideLength * e.size) < 1e-9);
+});
+
+test('the opening rescue breaks in the firing lane and three individual soldiers arrive once', () => {
+  const b = new Battle();
+  const rescue = b.gates[0];
+  b.start();
+  for (let i = 0; i < 140; i++) b.tick(1 / 60);
+  assert.equal(rescue.active, false);
+  assert.equal(b.recruits, 3);
+  assert.equal(b.allies.length, 4);
+  b.openCard(rescue);
+  assert.equal(b.deliveries.length, 0);
+  const weapon = b.gates.find((g) => g.type === 'merge');
+  b.openCard(weapon);
+  b.aim(-4.2);
+  for (let i = 0; i < 40; i++) b.tick(1 / 60);
+  assert.equal(b.cannonDamage, 31);
+  assert.equal(b.allies.length, 4);
+});
+
+test('the finale enters offscreen alongside the last wave, and each level starts with an empty road', () => {
+  const b = new Battle();
+  for (const stage of [1, 5, 10]) {
+    b.reset(stage);
+    b.entryZ = -48;
+    b.start();
+    b.row = b.finaleRow - 1;
+    b.worldAdvance = 2.3 / 60;
+    b.advanceBoss(1 / 60);
+    assert.equal(b.boss.active, false);
+    b.advanceCrowd(1 / 60);
+    b.advanceBoss(1 / 60);
+    assert.ok(b.boss.active && b.boss.z < b.entryZ - 1);
+    const before = b.row,
+      start = b.boss.z;
+    for (let i = 0; i < 60; i++) {
+      b.advanceCrowd(1 / 60);
+      b.advanceBoss(1 / 60);
+    }
+    assert.ok(b.row > before && b.boss.z > start + 2.3);
+    assert.ok(b.boss.x >= -1.13 && b.boss.x <= -0.1);
+  }
+});
+
+test('the moving wall sweeps only the soldiers it overlaps and keeps travelling', () => {
+  const b = field();
+  b.wall.hp = 72;
+  b.wall.z = -0.25;
+  b.x = -2;
+  b.allies = [
+    { slot: 0, x: 1.25, z: 0, phase: 0 },
+    { slot: 1, x: 4.1, z: 0, phase: 0 },
+  ];
+  b.pushWall(1 / 60);
+  assert.deepEqual(
+    b.allies.map((a) => a.slot),
+    [0],
+  );
+  const body = b.falling[0];
+  assert.ok(body.pushed);
+  const start = body.z;
+  b.worldAdvance = 0.4;
+  b.updateFalling(1 / 60);
+  assert.ok(body.z > start && !b.caught);
+});
+
+test('the boss falls once while the squad keeps fighting the last enemies', () => {
+  const events = [];
+  const b = field((e) => events.push(e.kind));
+  Object.assign(b.boss, { active: true, z: -12, hp: 12 });
+  b.row = b.lastRow;
+  placeRunner(b, 2, -4.5);
+  b.damageBoss({ kind: 'rocket' }, 26);
+  for (let i = 0; i < 100; i++) b.advanceBoss(1 / 60);
+  assert.equal(b.phase, 'clear');
+  assert.ok(b.playing);
+  assert.equal(events.filter((e) => e === 'victory').length, 1);
+  b.damageBoss({ kind: 'shot' }, 6);
+  assert.equal(events.filter((e) => e === 'finisher').length, 1);
+  b.runners.length = 0;
+  b.advanceBoss(1 / 60);
+  assert.equal(b.phase, 'won');
 });

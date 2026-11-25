@@ -1,4 +1,5 @@
 import { Battle } from './battle.js';
+import { supplies, lastStage } from './supplies.js';
 import { makeView } from './view.js';
 import { createAudio } from './audio.js';
 
@@ -49,6 +50,7 @@ let accumulator = 0,
   tipUntil = 0,
   toldWall = false,
   toldBoss = false,
+  toldClear = false,
   activePointer = null;
 const keys = new Set(),
   audio = createAudio();
@@ -94,15 +96,16 @@ function start() {
   $('pause').hidden = false;
   stage.dataset.phase = battle.phase;
 }
-function restart() {
+function restart(level = battle.stage) {
   release();
-  battle.reset();
+  battle.reset(level);
   view.reset(battle.x);
   accumulator = 0;
   visualTime = 0;
   tip.hidden = true;
   toldWall = false;
   toldBoss = false;
+  toldClear = false;
   start();
 }
 function showPanel(which) {
@@ -129,13 +132,25 @@ function showPanel(which) {
   }
   if (which === 'result') {
     const win = battle.phase === 'won';
-    $('dialogTitle').textContent = win ? '突破成功' : ['wall', 'slam'].includes(battle.lossReason) ? '队长出局' : battle.lossReason === 'breach' ? '防线失守' : '小队全灭';
-    $('detail').textContent = win
-      ? `击败 Boss，击退 ${battle.score} 名红兵。`
-      : battle.lossReason==='wall' ? '队长被硬墙推出了跑道。' : battle.lossReason==='breach' ? 'Boss 突破了防线。' : battle.lossReason==='slam' ? '队长被 Boss 的落地冲击击倒。' : battle.boss.active
-        ? `Boss 还剩 ${Math.ceil(battle.boss.hp)} / 800 生命`
-        : '红兵突破了队伍。';
-    $('continue').textContent = '再玩一次';
+    if (win) {
+      $('dialogTitle').textContent =
+        battle.stage === lastStage ? '全部通关' : `第 ${battle.stage} 关通过`;
+      $('detail').textContent = `击败 Boss，击退 ${battle.score} 名红兵。`;
+    } else {
+      const losses = {
+        wall: ['队长出局', '队长被硬墙推出了跑道。'],
+        breach: ['防线失守', 'Boss 突破了防线。'],
+        slam: ['队长出局', '队长被 Boss 的落地冲击击倒。'],
+      };
+      const fallback =
+        battle.boss.active && !battle.boss.defeated
+          ? `Boss 还剩 ${Math.ceil(battle.boss.hp)} / ${battle.boss.maxHp} 生命`
+          : '红兵突破了队伍。';
+      const [title, detail] = losses[battle.lossReason] || ['小队全灭', fallback];
+      $('dialogTitle').textContent = title;
+      $('detail').textContent = detail;
+    }
+    $('continue').textContent = win && battle.stage < lastStage ? '下一关' : '再玩一次';
   }
   $('continue').focus({ preventScroll: true });
 }
@@ -151,7 +166,9 @@ function resume() {
     prev = returnPanel;
   hidePanel();
   if (old === 'result') {
-    restart();
+    restart(
+      battle.phase === 'won' ? (battle.stage < lastStage ? battle.stage + 1 : 1) : battle.stage,
+    );
     return;
   }
   if (old === 'art' && prev) {
@@ -163,7 +180,7 @@ function resume() {
   } else if (battle.phase === 'ready') startButton.focus({ preventScroll: true });
 }
 $('continue').addEventListener('click', resume);
-$('secondary').addEventListener('click', restart);
+$('secondary').addEventListener('click', () => restart());
 startButton.addEventListener('click', start);
 $('sound').addEventListener('click', () => {
   muted = !muted;
@@ -248,7 +265,17 @@ let lastCount = -1,
   lastHP = -1;
 function hud() {
   const n = battle.allies.length,
-    power = Math.round(26 + Math.min(174, battle.absorbed * 4.85));
+    power = battle.cannonDamage;
+  const level = $('level');
+  const levelText = '第 ' + battle.stage + ' 关';
+  if (level.textContent !== levelText) level.textContent = levelText;
+  const active = Object.entries(battle.buffs).filter(([, time]) => time > 0);
+  const stateText = active
+    .map(([key, time]) => supplies[key].label + ' ' + Math.ceil(time) + '秒')
+    .join(' · ');
+  const buffs = $('buffs');
+  if (buffs.textContent !== stateText) buffs.textContent = stateText;
+  buffs.hidden = !stateText || !battle.playing;
   if (n !== lastCount) {
     $('count').textContent = n;
     lastCount = n;
@@ -259,7 +286,7 @@ function hud() {
   }
   stage.dataset.phase = battle.phase;
   const b = battle.boss;
-  bossBar.hidden = !b.active || battle.phase === 'won';
+  bossBar.hidden = !b.active || b.defeated || view.project(b.x, 0, b.z).y < 3;
   if (!bossBar.hidden) {
     const p = view.project(b.x, 4.91 + b.lift * 1.38, b.z);
     bossBar.style.transform = `translate(${p.x.toFixed(1)}px,${Math.max(53, p.y).toFixed(1)}px)`;
@@ -275,16 +302,20 @@ function hud() {
       message('击碎硬墙，或向左避开', 3.0);
     }
     if (battle.wall.hp <= 0 && tip.textContent === '击碎硬墙，或向左避开') tip.hidden = true;
-    if (b.active && !toldBoss) {
+    if (!bossBar.hidden && !toldBoss) {
       toldBoss = true;
       message('对准 Boss 开火，跳起时避开落点', 2.2);
+    }
+    if (b.defeated && !toldClear && b.defeatAge >= 0.92) {
+      toldClear = true;
+      message('Boss 已倒下，清理剩余红兵', 2.3);
     }
     if (!tip.hidden && battle.elapsed >= tipUntil) tip.hidden = true;
   }
   if (!battle.playing && battle.phase !== 'ready') {
     tip.hidden = true;
     $('pause').hidden = true;
-    if (battle.endTime > (battle.phase==="won"?2.05:.86) && !panel) showPanel('result');
+    if (battle.endTime > 0.86 && !panel) showPanel('result');
   }
 }
 function loop(now) {
@@ -339,8 +370,10 @@ async function boot() {
     view.reset(battle.x);
     const resize = () => {
       view.resize();
+      battle.entryZ = view.entryZ();
       needsPaint = true;
     };
+    resize();
     new ResizeObserver(resize).observe(stage);
     window.addEventListener('resize', resize);
     canvas.addEventListener('webglcontextlost', (e) => {

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
 
 // The source paintings include a few transparent edge pixels to keep minified art clean.
 // Each pivot sits between the boots. The captain's cannon makes his crop asymmetric.
@@ -14,6 +15,7 @@ const vertexShader = `
   attribute vec3 anchor;
   attribute vec2 dimensions;
   attribute vec4 motion;
+  attribute vec3 feet;
   attribute vec4 treatment;
   uniform vec3 cameraRight;
   uniform vec3 cameraLift;
@@ -25,19 +27,19 @@ const vertexShader = `
     imageUv = uv;
     colorTreatment = treatment.xyz;
     vec2 point = vec2(uv.x - pivot, (uv.y-padding)/(1.0-2.0*padding));
-    float stride = sin(motion.x), run = motion.y;
+    float stride = feet.x;
     float sideSign = smoothstep(pivot-0.07,pivot+0.07,uv.x)*2.0-1.0;
     float boots = (1.0-smoothstep(0.08,0.34,uv.y));
     float arms = smoothstep(.15,.32,abs(uv.x-pivot)) * smoothstep(.22,.38,uv.y)
                * (1.0-smoothstep(.46,.63,uv.y));
-    float lift = max(0.0,sideSign*cos(motion.x));
-    float swing = sideSign*stride*run;
+    float lift = max(0.0,sideSign*feet.z);
+    float swing = mix(feet.y,feet.x,sideSign*.5+.5);
     #ifdef CAPTAIN
       arms *= mix(1.0,0.18,smoothstep(pivot,pivot+0.12,uv.x));
     #endif
-    point.x += swing * (0.042*arms-0.032*boots) + run*stride*.014*uv.y;
-    point.y += run*(.096*lift*lift*boots + .026*stride*stride*(1.0-boots)) + swing*.078*arms;
-    float depthSwing = (boots*.20-arms*.14)*swing*dimensions.y;
+    point.x += swing * (0.042*arms-0.032*boots) + stride*.014*uv.y;
+    point.y += .141*lift*boots + .026*abs(feet.z)*(1.0-boots) + swing*.058*arms;
+    float depthSwing = (boots*${footReach / 0.86}-arms*.16)*swing*dimensions.y;
     #ifdef ALLY
       depthSwing *= -1.0;
     #endif
@@ -86,6 +88,7 @@ const fragmentShader = `
 
 function makeBatch(scene, name, texture, right, lift) {
   const spec = designs[name];
+  const footState = new Float32Array(3);
   const plane = new THREE.PlaneGeometry(1, 1, ...spec.grid);
   const geometry = new THREE.InstancedBufferGeometry().copy(plane);
   const attributes = {};
@@ -93,6 +96,7 @@ function makeBatch(scene, name, texture, right, lift) {
     ['anchor', 3],
     ['dimensions', 2],
     ['motion', 4],
+    ['feet', 3],
     ['treatment', 4],
   ]) {
     const attribute = new THREE.InstancedBufferAttribute(
@@ -158,6 +162,8 @@ function makeBatch(scene, name, texture, right, lift) {
       attributes.anchor.setXYZ(count, x, y, z);
       attributes.dimensions.setXY(count, spec.width * scaleX, spec.height * scaleY);
       attributes.motion.setXYZW(count, step, run, angle, action);
+      sampleFeet(step, run, footState);
+      attributes.feet.setXYZ(count, footState[0], footState[1], footState[2]);
       attributes.treatment.setXYZW(count, gold, white, gray, lean);
       count++;
     },
@@ -213,12 +219,12 @@ export async function createSpriteArt(scene) {
     if (full) {
       for (const column of s.columns) {
         for (const e of column.units) {
-          if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, step + e.phase, moving);
+          if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, marchAngle(e), moving);
         }
       }
     }
     for (const e of s.runners) {
-      if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, step * 1.13 + e.phase, moving);
+      if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, marchAngle(e), moving);
     }
     for (const a of s.allies) {
       const p = clamp(a.age / 0.32, 0, 1),
@@ -237,23 +243,10 @@ export async function createSpriteArt(scene) {
         0.22 * (1 - p),
       );
     }
-    for (const a of s.merging) {
-      const p = clamp(a.t / 0.32, 0, 1),
-        travel = smooth(p, 0, 1);
-      const size = 1 - 0.85 * travel;
-      batches.ally.add(
-        THREE.MathUtils.lerp(a.x, s.x, travel),
-        0.5 * Math.sin(p * Math.PI),
-        a.z * (1 - travel),
-        size,
-        size,
-        step + a.phase,
-        0.25,
-        0.23 * Math.sin(p * Math.PI),
-        0,
-        0.15 + 0.7 * p,
-        0.22 + 0.37 * p,
-      );
+    for (const f of s.deliveries) {
+      if (f.slot == null || f.age < 0) continue;
+      const size = 0.65 + 0.35 * f.progress;
+      batches.ally.add(f.x, f.y, f.z, size, size, step + f.phase, 0.55, 0, 0, 0.42, 0.24);
     }
     if (full) {
       for (const e of s.falling) {
@@ -299,5 +292,5 @@ export async function createSpriteArt(scene) {
     }
     for (const batch of groups) batch.flush();
   }
-  return { draw, clear };
+  return { draw, clear, gruntTexture: loaded[names.indexOf('grunt')].value };
 }

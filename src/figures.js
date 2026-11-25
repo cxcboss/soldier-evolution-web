@@ -177,7 +177,7 @@ export function createTroopGeometry(side, detail = 'near') {
   const parts = new Parts();
   const dome = red ? 0xf2353a : 0x149fe8;
   const lip = red ? 0xb0212b : 0x155cac;
-  const fabric = red ? 0xbb754b : 0xd5b177;
+  const fabric = red ? 0xc8955d : 0xd5b177;
   const yDome = far ? 6 : 10;
   const headSides = far ? 5 : 8;
   for (const sign of [-1, 1]) {
@@ -185,8 +185,8 @@ export function createTroopGeometry(side, detail = 'near') {
     const x = sign * 0.081;
     parts.shape(
       [
-        [0.01, 0.058, 0.09, x, -0.022],
-        [0.05, 0.068, 0.103, x, -0.025],
+        [0.01, 0.058, 0.105, x, -0.031],
+        [0.05, 0.068, 0.11, x, -0.032],
         [0.12, 0.05, 0.067, x],
       ],
       0x352d30,
@@ -289,16 +289,18 @@ export function createTroopGeometry(side, detail = 'near') {
       parts.limb = 2;
       parts.add(beam([0.163, 0.264, 0.032], [0.173, 0.525, -0.19], 0.026, 0.026, 5), colors.gun);
       parts.add(beam([0.173, 0.51, -0.18], [0.173, 0.656, -0.268], 0.013, 0.013, 5), 0x2d4452);
-    } else {
-      parts.ell(0xdb945b, [0, 0.536, -0.135], [0.043, 0.038, 0.046], zero, 'cloth', 5, 3);
     }
   }
-  if (red && !far) {
+  if (red) {
+    // Keep the front of the existing red helmet and face readable from the overhead camera.
+    parts.ell(lip, [0, 0.583, -0.12], [0.18, 0.019, 0.133], [-0.14, 0, 0], 'cloth', 8, 3);
+    parts.ell(0xefaa70, [0, 0.514, -0.139], [0.042, 0.042, 0.061], zero, 'cloth', 5, 3);
+    parts.box(0xffb780, [0, 0.68, -0.196], [0.043,0.045,0.012], [-0.28,0,0]);
     for (const sign of [-1, 1]) {
       parts.ell(
-        0x533428,
-        [sign * 0.064, 0.54, -0.137],
-        [0.029, 0.012, 0.011],
+        0x422d2c,
+        [sign * 0.061, 0.536, -0.14],
+        [0.026, 0.022, 0.015],
         [0, -sign * 0.28, -sign * 0.12],
         'cloth',
         5,
@@ -311,6 +313,22 @@ export function createTroopGeometry(side, detail = 'near') {
   if (red) geometry.rotateY(Math.PI);
   geometry.computeBoundingBox();
   return geometry;
+}
+
+export function fieldEquipment(role) {
+  const p = new Parts();
+  if (role === 'guard') {
+    p.box(0x526476, [0.12, 0.32, 0.155], [0.25, 0.34, 0.065], [-0.12, 0, -0.045]);
+    p.box(0xb6c5bf, [0.12, 0.36, 0.194], [0.20, 0.038, 0.014]);
+  } else if (role === 'gunner') {
+    p.add(beam([0.14, 0.33, 0.07], [0.13, 0.37, 0.39], 0.040, 0.03, 6), 0x354251);
+    p.add(beam([0.13, 0.37, 0.38], [0.13, 0.38, 0.47], 0.038, 0.038, 6), 0x7c8085);
+  } else {
+    p.box(0x65453a, [0, 0.38, 0.12], [0.23, 0.15, 0.082]);
+    for (const x of [-0.068, 0, 0.068])
+      p.add(beam([x, 0.32, 0.163], [x, 0.45, 0.17], 0.029, 0.029, 6), 0xdf4b32);
+  }
+  return p.joinGeometry();
 }
 
 function captainLeg(parent, sign, palette) {

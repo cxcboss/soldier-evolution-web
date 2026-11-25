@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { sampleFeet, stanceFraction } from './infantry-walk.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { jumpProgress, smoothRange, takeoff, touchdown, attackDuration } from './brawler-motion.js';
 
@@ -74,7 +75,8 @@ export async function loadBrawler() {
     replayTrim.push({ cuff, chevron });
   }
 
-  function pose({ time, walk, attack, hit, defeat, variant }) {
+  const feet = new Float32Array(3);
+  function pose({ time, walk, march, attack, hit, defeat, variant }) {
     const attackWeight = 1 - smoothRange(defeat, 0, 0.38);
     const prep =
       attackWeight * smoothRange(attack, 0, 0.19) * (1 - smoothRange(attack, 0.2, takeoff + 0.1));
@@ -93,8 +95,10 @@ export async function loadBrawler() {
       walk *
       (1 - smoothRange(attack, 0.015, 0.16) + smoothRange(attack, 1.32, attackDuration)) *
       (1 - down);
-    const beat = time * 6.75;
-    const stride = Math.sin(beat) * gait;
+    const reach = 0.41;
+    const beat = march == null ? time * 6.75 : march * Math.PI * stanceFraction / reach;
+    sampleFeet(beat, gait, feet);
+    const stride = feet[0];
     pelvis.position.y =
       hipsY +
       (-0.105 + (0.5 - 0.5 * Math.cos(2 * beat)) * 0.047) * gait -
@@ -114,21 +118,21 @@ export async function loadBrawler() {
     );
     for (const [i, limb] of limbs.entries()) {
       const side = i ? 1 : -1;
-      const swing = stride * side;
-      const lift = Math.max(0, side * Math.cos(beat)) ** 2 * gait;
+      const swing = feet[i];
+      const lift = Math.max(0, (i === 0 ? 1 : -1) * feet[2]);
       // Solve the two leg angles to keep the supporting boot on the road while
       // the other clears it. The painted pose alone has one foot in front.
       const thigh = -limb.Knee.position.y;
       const shin = -limb.Ankle.position.y;
       const downToAnkle = thigh + shin + pelvis.position.y - hipsY - lift * 0.22;
-      const footZ = 0.41 * swing;
-      const reach = Math.min(thigh + shin - 0.00001, Math.hypot(downToAnkle, footZ));
+      const footZ = reach * swing;
+      const legLength = Math.min(thigh + shin - 0.00001, Math.hypot(downToAnkle, footZ));
       const safeAcos = (value) => Math.acos(THREE.MathUtils.clamp(value, -1, 1));
       const hipAngle =
         Math.atan2(-footZ, downToAnkle) -
-        safeAcos((thigh * thigh + reach * reach - shin * shin) / (2 * thigh * reach));
+        safeAcos((thigh * thigh + legLength * legLength - shin * shin) / (2 * thigh * legLength));
       const kneeAngle =
-        Math.PI - safeAcos((thigh * thigh + shin * shin - reach * reach) / (2 * thigh * shin));
+        Math.PI - safeAcos((thigh * thigh + shin * shin - legLength * legLength) / (2 * thigh * shin));
       limb.Hip.rotation.x = hipAngle - (0.6 + i * 0.11) * air + side * 0.27 * down;
       limb.Knee.rotation.x = kneeAngle + 0.86 * air + 0.22 * down;
       limb.Ankle.rotation.x = -hipAngle - kneeAngle + 0.19 * swing - 0.31 * air;

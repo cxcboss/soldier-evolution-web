@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0a2036" />
     <title>小兵进化 · 网页试玩</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./game.css" />
+    <link rel="stylesheet" href="./game.css?v=bridge2" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
@@ -75,8 +75,9 @@
       <canvas id="game" aria-label="战场。左右拖动，或用方向键和 A、D 移动队伍。"></canvas>
       <header class="hud">
         <div class="readings" aria-label="队伍状态">
+          <span id="level">第 1 关</span><i></i>
           <span title="队员人数" aria-label="队员人数"
-            ><svg class="blue"><use href="#i-soldier" /></svg><b id="count">8</b></span
+            ><svg class="blue"><use href="#i-soldier" /></svg><b id="count">1</b></span
           ><i></i
           ><span title="单发炮击伤害" aria-label="单发炮击伤害"
             ><svg class="gold"><use href="#i-shell" /></svg><b id="power">26</b></span
@@ -92,6 +93,7 @@
           </button>
         </div>
       </header>
+      <div id="buffs" class="buffs" hidden></div>
       <div id="bossbar" class="bossbar" hidden>
         <div></div>
         <b>800</b>
@@ -126,6 +128,6 @@
       </div>
       <div id="problem" class="problem" hidden></div>
     </main>
-    <script type="module" src="./game.js?v=march1"></script>
+    <script type="module" src="./game.js?v=bridge2"></script>
   </body>
 </html>
