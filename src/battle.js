@@ -448,6 +448,25 @@ export class Battle {
       b.impactDone = false;
     }
   }
+  landBoss() {
+    const centerZ = this.boss.z - 1.55;
+    const displace = unit => {
+      const dx = unit.x - this.boss.x;
+      const dz = unit.z - centerZ;
+      if (!unit.alive || (dx / 2.45) ** 2 + (dz / 3.6) ** 2 > 1) return;
+      this.kill(unit, 1.25, this.boss.x);
+      const body = this.falling[this.falling.length - 1];
+      body.vx = Math.sign(dx || 1) * (3.8 + Math.abs(dx));
+      body.vz = dz * 1.9;
+    };
+    for (const column of this.columns) {
+      for (const unit of column.units) displace(unit);
+      column.units = column.units.filter(unit => unit.alive);
+    }
+    for (const unit of this.runners) displace(unit);
+    this.runners = this.runners.filter(unit => unit.alive);
+    this.event('victory', this.boss.x, 0.1, centerZ, 1.3);
+  }
   finish(win) {
     if (!this.playing) return;
     this.phase = win ? 'won' : 'lost';
@@ -467,7 +486,7 @@ export class Battle {
         const before=this.endTime;
         this.endTime += dt;
         this.boss.hit=Math.max(0,this.boss.hit-4*dt);
-        if(this.phase==='won' && before<.92 && this.endTime>=.92)this.event('victory',this.boss.x,.1,this.boss.z-1.6,1.3);
+        if(this.phase==='won' && before<.92 && this.endTime>=.92)this.landBoss();
         this.updateFalling(dt);
       }
       return;
