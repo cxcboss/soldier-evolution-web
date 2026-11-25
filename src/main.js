@@ -129,10 +129,10 @@ function showPanel(which) {
   }
   if (which === 'result') {
     const win = battle.phase === 'won';
-    $('dialogTitle').textContent = win ? '突破成功' : '小队全灭';
+    $('dialogTitle').textContent = win ? '突破成功' : battle.lossReason === 'wall' ? '队长出局' : battle.lossReason === 'breach' ? '防线失守' : '小队全灭';
     $('detail').textContent = win
       ? `击败 Boss，击退 ${battle.score} 名红兵。`
-      : battle.boss.active
+      : battle.lossReason==='wall' ? '队长被硬墙推出了跑道。' : battle.lossReason==='breach' ? 'Boss 突破了防线。' : battle.boss.active
         ? `Boss 还剩 ${Math.ceil(battle.boss.hp)} / 800 生命`
         : '红兵突破了队伍。';
     $('continue').textContent = '再玩一次';
@@ -270,11 +270,11 @@ function hud() {
     lastHP = b.hp;
   }
   if (battle.playing && !panel) {
-    if (!toldWall && battle.wall.hp > 0 && battle.distance >= 16.6) {
+    if (!toldWall && battle.wall.hp > 0 && battle.distance >= 10 && battle.wall.z < 0) {
       toldWall = true;
-      message('移到右侧，击碎灰墙', 3.0);
+      message('击碎硬墙，或向左避开', 3.0);
     }
-    if (battle.wall.hp <= 0 && tip.textContent === '移到右侧，击碎灰墙') tip.hidden = true;
+    if (battle.wall.hp <= 0 && tip.textContent === '击碎硬墙，或向左避开') tip.hidden = true;
     if (b.active && !toldBoss) {
       toldBoss = true;
       message('对准 Boss，持续开火', 1.7);
@@ -284,7 +284,7 @@ function hud() {
   if (!battle.playing && battle.phase !== 'ready') {
     tip.hidden = true;
     $('pause').hidden = true;
-    if (battle.endTime > 0.86 && !panel) showPanel('result');
+    if (battle.endTime > (battle.phase==="won"?2.05:.86) && !panel) showPanel('result');
   }
 }
 function loop(now) {

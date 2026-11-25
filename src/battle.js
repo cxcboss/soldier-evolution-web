@@ -32,7 +32,10 @@ export class Battle {
     this.phase = 'ready';
     this.elapsed = 0;
     this.distance = 0;
-    this.blueDistance = 0;
+    this.captainZ = 0;
+    this.caught = false;
+    this.lossReason = null;
+    this.round = (this.round ?? -1) + 1;
     this.worldAdvance = 0;
     this.x = -3.95;
     this.targetX = this.x;
@@ -133,18 +136,19 @@ export class Battle {
   crossGates() {
     const range = 0.72 + Math.min(0.75, this.allies.length * 0.017);
     for (const g of this.gates) {
-      g.z = (g.type === 'plus' ? this.blueDistance : this.distance) - g.at;
+      if(g.collectedAt!=null)g.pop=this.elapsed-g.collectedAt;
+      g.z = this.distance - g.at;
       if (!g.active || g.z < -range || g.z > 1.45) continue;
-      if (g.type === 'plus' && this.wall.hp > 0) continue;
+      if (this.caught) continue;
       const half = g.type === 'plus' ? 0.86 : 1.28;
       if (Math.abs(this.x - g.x) > half + range * 0.61) continue;
       if (g.type === 'plus') {
-        g.active = false;
+        g.active = false;g.pop=0;g.collectedAt=this.elapsed;
         this.recruit(g.x);
         continue;
       }
       if (!this.allies.length) continue;
-      g.active = false;
+      g.active = false;g.pop=0;g.collectedAt=this.elapsed;
       const n = Math.min(
         this.allies.length,
         1 + Math.floor(this.absorbed / 5) + Math.floor(this.allies.length / 9),
@@ -164,20 +168,19 @@ export class Battle {
   advanceCrowd(dt) {
     const march = 1.55 * dt + this.worldAdvance * 0.48;
     for (const c of this.columns) {
-      let lead = -7.15 + 0.37 * Math.sin(this.elapsed * 0.8 + c.index * 0.72);
-      if (this.boss.active) lead -= Math.max(0, 2.6 - this.boss.z * 0.1);
       const alive = [];
       for (const e of c.units) {
         if (!e.alive) continue;
-        e.z = Math.min(lead, e.z + march);
-        lead = e.z - 0.445;
-        alive.push(e);
+        e.z += march;
+        if (e.z > 10) continue;
+        this.contact(e);
+        if (e.alive) alive.push(e);
       }
       c.units = alive;
-      let tail = alive.length ? alive[alive.length - 1].z : lead;
-      while (tail > -63) {
-        tail -= 0.49;
-        alive.push(this.grunt(c.x + ((this.sequence % 2) - 0.5) * 0.12, tail));
+      let tail = alive.length ? alive[alive.length-1].z : -63;
+      while (tail > -70) {
+        tail -= .49;
+        alive.push(this.grunt(c.x + (this.rand()-.5)*.13, tail));
       }
     }
     this.rushTimer -= dt;
@@ -187,7 +190,8 @@ export class Battle {
       const count = 2 + Math.floor(this.rand() * 3);
       for (let i = 0; i < count; i++) {
         const c = this.columns[clamp(near + Math.round((this.rand() - 0.5) * 4), 0, COLUMNS - 1)];
-        const unit = c.units.shift();
+        const candidate = c.units.findIndex(e => e.z < -6);
+        const unit = candidate < 0 ? null : c.units.splice(candidate,1)[0];
         if (unit) {
           unit.speed = 2.0 + this.rand() * 0.62;
           this.runners.push(unit);
@@ -199,21 +203,34 @@ export class Battle {
       e.z += (e.speed + (this.worldAdvance / Math.max(dt, 0.001)) * 0.25) * dt;
       const chase = e.z > -7 ? 1.0 : 0.32;
       e.x += clamp(this.x - e.x, -chase * dt, chase * dt);
-      if (Math.abs(e.x - this.x) < 0.78 + this.scale * 0.2 && e.z > -0.38 && e.z < 1.0) {
-        e.alive = false;
-        if (this.hitGuard <= 0) {
-          this.hitGuard = this.allies.length ? 0.64 : 1.16;
-          this.hurt = 1;
-          if (this.allies.length) {
-            const a = this.allies.pop();
-            this.fall(a, 'blue', 0.7);
-          } else if (--this.armor <= 0) {
-            this.finish(false);
-          }
-        }
-      }
+      this.contact(e);
     }
-    this.runners = this.runners.filter((e) => e.alive && e.z < 3.1);
+    this.runners = this.runners.filter(e => e.alive && e.z < 10);
+  }
+  contact(e) {
+    if (!this.playing || this.caught || Math.abs(e.x-this.x) > .47*this.scale || Math.abs(e.z) > .42) return;
+    e.alive = false;
+    if (this.hitGuard > 0) return;
+    this.hitGuard = this.allies.length ? .64 : 1.16;
+    this.hurt = 1;
+    if (this.allies.length) this.fall(this.allies.pop(),'blue',.7);
+    else if (--this.armor <= 0) this.finish(false);
+  }
+  pushWall(dt) {
+    const wall = this.wall;
+    const touches = (x,z,r) => wall.hp>0 && Math.abs(x-wall.x)<2.14+r && Math.abs(z-wall.z)<.32+r;
+    this.allies = this.allies.filter(a => {
+      if (!touches(a.x,a.z,.19)) return true;
+      this.fall(a,'blue',0);
+      const pushed=this.falling[this.falling.length-1];
+      pushed.pushed=true; pushed.front=wall.z+.55;
+      return false;
+    });
+    if (touches(this.x,this.captainZ,.32*this.visualScale)) this.caught=true;
+    if (this.caught) {
+      this.captainZ = Math.max(this.captainZ,wall.z+.38);
+      if (this.captainZ>=4.5) {this.lossReason='wall';this.finish(false);}
+    }
   }
   fall(e, side, force, origin = e.x) {
     if (this.falling.length > 95) this.falling.shift();
@@ -258,6 +275,10 @@ export class Battle {
         age: 0,
         damage: 26 + Math.min(174, this.absorbed * 4.85),
       });
+      // A wall in the captain's lane takes a separate demolition round.
+      if (this.wall.hp > 0 && this.wall.z < z && Math.abs(x - this.wall.x) < 2.1) {
+        this.shots.push({ ...this.shots[this.shots.length - 1], wallRound: true });
+      }
       this.event('muzzle', x, y, z, power);
     }
     let fired = false;
@@ -279,27 +300,24 @@ export class Battle {
     }
     if (fired) this.event('smallShot', this.x, 0.6, 0, 0.64);
   }
-  shotHit(p, nextZ) {
-    let best = null,
-      nearest = -Infinity;
-    const reach = p.kind === 'rocket' ? 0.24 : 0.12;
-    const tryTarget = (type, target, x, z, half, depth) => {
-      if (Math.abs(x - p.x) > half + reach || z + depth < nextZ || z - depth > p.z || z <= nearest)
-        return;
-      best = { type, target };
-      nearest = z;
+  frontEnemy(originX) {
+    let front = null;
+    const consider = (target, type) => {
+      if (target.z < -52 || target.z > (type === 'boss' ? 4.5 : 0.45)) return;
+      if (front && (target.z < front.target.z ||
+          (target.z === front.target.z && Math.abs(target.x-originX) >= Math.abs(front.target.x-originX)))) return;
+      front = {target, type};
     };
-    if (this.wall.hp > 0) tryTarget('wall', this.wall, this.wall.x, this.wall.z, 2.1, 0.32);
-    if (this.boss.active) tryTarget('boss', this.boss, this.boss.x, this.boss.z, 1.26, 0.7);
-    for (const c of this.columns) {
-      if (Math.abs(c.x - p.x) > 0.48 + reach) continue;
-      for (const e of c.units) {
-        if (e.z < nextZ - 0.35) break;
-        if (e.alive) tryTarget('grunt', e, e.x, e.z, 0.245, 0.23);
+    if (this.boss.active && this.boss.hp > 0) consider(this.boss, 'boss');
+    for (const column of this.columns) {
+      for (const unit of column.units) {
+        if (!unit.alive || unit.z > 0.45) continue;
+        consider(unit, 'grunt');
+        break;
       }
     }
-    for (const e of this.runners) if (e.alive) tryTarget('grunt', e, e.x, e.z, 0.25, 0.23);
-    return best;
+    for (const unit of this.runners) if (unit.alive) consider(unit, 'grunt');
+    return front;
   }
   blast(p, z) {
     const radius = 0.95 + p.power * 0.48;
@@ -318,15 +336,32 @@ export class Battle {
     const remaining = [];
     for (const p of this.shots) {
       p.age += dt;
-      const next = p.z - dt * (p.kind === 'rocket' ? 15.8 : 24.8);
-      const hit = this.shotHit(p, next);
-      if (!hit) {
-        p.z = next;
-        p.y = p.kind === 'rocket' ? Math.max(0.72, p.originY - 0.17 * p.age) : p.originY;
-        if (p.z > -51) remaining.push(p);
+      let hit = p.lock;
+      if (p.wallRound) {
+        if (this.wall.hp <= 0) continue;
+        hit = {type: 'wall', target: this.wall};
+      } else if (!hit || hit.target.alive === false || (hit.type === 'grunt' && hit.target.z > 0.45)) {
+        hit = this.frontEnemy(p.x);
+      }
+      if (!hit) continue;
+      p.lock = hit;
+      const e = hit.target;
+      const dx = hit.type === 'wall' ? 0 : e.x - p.x;
+      const dy = (hit.type === 'boss' ? 2.15 : hit.type === 'wall' ? 0.86 : 0.48) - p.y;
+      const dz = e.z + (hit.type === 'boss' ? 0.55 : 0.12) - p.z;
+      const distance = Math.max(0.001, Math.hypot(dx, dy, dz));
+      const step = dt * (p.kind === 'rocket' ? 20 : 30);
+      p.dirX = dx / distance;
+      p.dirY = dy / distance;
+      p.dirZ = dz / distance;
+      const travel = Math.min(step, distance);
+      p.x += p.dirX * travel;
+      p.y += p.dirY * travel;
+      p.z += p.dirZ * travel;
+      if (distance > step + 0.10) {
+        remaining.push(p);
         continue;
       }
-      const e = hit.target;
       if (hit.type === 'wall') {
         e.hp = Math.max(0, e.hp - p.damage * 0.72);
         e.flash = 1;
@@ -340,7 +375,7 @@ export class Battle {
       } else if (hit.type === 'boss') {
         e.hp = Math.max(0, e.hp - p.damage);
         e.hit = p.kind === 'rocket' ? 0.77 : Math.max(e.hit, 0.10);
-        if (p.kind === 'rocket') this.event('impact', p.x, 0.25, e.z + 0.43, p.power * 0.7);
+        this.event(p.kind === 'rocket' ? 'impact' : 'hit', p.x, p.y, p.z, p.kind === 'rocket' ? p.power * 0.7 : 0.7);
         if (e.hp <= 0) {
           this.finish(true);
           break;
@@ -352,10 +387,15 @@ export class Battle {
         this.event('hit', e.x, 0.45, e.z, 0.65);
       }
     }
-    this.shots = remaining;
+    this.shots = this.playing ? remaining : [];
   }
   updateFalling(dt) {
     for (const e of this.falling) {
+      if (e.pushed) {
+        e.z=Math.max(e.z,e.front); e.z+=this.worldAdvance; e.y=0;
+        if(e.z>7)e.t=2;
+        continue;
+      }
       e.t += dt;
       e.x += e.vx * dt;
       e.z += e.vz * dt + this.worldAdvance * 0.38;
@@ -400,9 +440,10 @@ export class Battle {
       }
       return;
     }
-    b.z = Math.min(-1.18, b.z + dt * 2.48);
-    b.x += clamp(this.x - b.x, -dt * 1.46, dt * 1.46);
-    if (b.z > -2.05 && Math.abs(b.x - this.x) < 1.7 && b.recovery <= 0) {
+    b.z += dt * 2.48;
+    if(b.z>4.5){this.lossReason="breach";this.finish(false);return;}
+    b.x = clamp(b.x + clamp(this.x-b.x,-dt*.9,dt*.9),-1.13,-.10);
+    if (b.z > -2.05 && b.z < .6 && Math.abs(b.x - this.x) < 1.7 && b.recovery <= 0) {
       b.attackT = 0.001;
       b.impactDone = false;
     }
@@ -412,11 +453,10 @@ export class Battle {
     this.phase = win ? 'won' : 'lost';
     this.endTime = 0;
     if (win) {
-      this.event('victory', this.boss.x, 0.55, this.boss.z, 2);
+      this.shots=[];this.event('finisher',this.boss.x,2.3,this.boss.z,1.5);
     } else {
       this.event('loss', this.x, 0, 0);
-      for (const a of this.allies) this.fall(a, 'blue', 1.45, this.x);
-      this.allies = [];
+      if(this.lossReason!=='wall'){for (const a of this.allies) this.fall(a,'blue',1.45,this.x);this.allies=[];}
       this.event('impact', this.x, 0, 0, 1.6);
     }
   }
@@ -424,7 +464,10 @@ export class Battle {
     this.worldAdvance = 0;
     if (!this.playing) {
       if (this.phase === 'won' || this.phase === 'lost') {
+        const before=this.endTime;
         this.endTime += dt;
+        this.boss.hit=Math.max(0,this.boss.hit-4*dt);
+        if(this.phase==='won' && before<.92 && this.endTime>=.92)this.event('victory',this.boss.x,.1,this.boss.z-1.6,1.3);
         this.updateFalling(dt);
       }
       return;
@@ -439,15 +482,12 @@ export class Battle {
     this.visualScale += (this.scale - this.visualScale) * (1 - Math.exp(-8 * dt));
     if (axis) this.aim(this.targetX + axis * 10.2 * dt);
     const oldX = this.x;
-    this.x += (this.targetX - this.x) * (1 - Math.exp(-21 * dt));
+    if(!this.caught)this.x += (this.targetX - this.x) * (1 - Math.exp(-21 * dt));
     this.velocity = (this.x - oldX) / Math.max(dt, 0.001);
     const speed = this.boss.active ? 2.3 : 3.65;
-    const blocked = this.wall.hp > 0 && this.blueDistance >= WALL_AT - 4.25 && this.x > 2.5;
-    this.worldAdvance = blocked ? 0 : speed * dt;
+    this.worldAdvance = speed * dt;
     this.distance += this.worldAdvance;
-    this.blueDistance += speed * dt;
-    if (this.wall.hp > 0) this.blueDistance = Math.min(this.blueDistance, WALL_AT - 4.25);
-    this.wall.z = this.blueDistance - WALL_AT;
+    this.wall.z = this.distance - WALL_AT;
     this.crossGates();
     for (const a of this.allies) {
       a.age += dt;
@@ -456,12 +496,14 @@ export class Battle {
       a.x += (target - a.x) * (1 - Math.exp(-19 * dt));
       a.z += (dz - a.z) * (1 - Math.exp(-14 * dt));
     }
+    this.pushWall(dt);
+    if(!this.playing)return;
     this.advanceCrowd(dt);
     this.updateFalling(dt);
     if (!this.playing) return;
     this.advanceBoss(dt);
     if (!this.playing) return;
-    this.shoot(dt);
+    if(!this.caught)this.shoot(dt);
     this.advanceShots(dt);
   }
 }

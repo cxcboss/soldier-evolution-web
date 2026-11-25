@@ -157,10 +157,10 @@ export function makeView(canvas, stage) {
   const camera = new THREE.PerspectiveCamera(41, 1, 0.15, 150),
     world = new THREE.Vector3();
   const captain = createCaptain(),
-    boss = createBoss();
-  scene.add(captain.root, boss.root);
+    bosses = [createBoss()];
+  scene.add(captain.root, bosses[0].root);
   const blue = troops(scene, 'blue', 'near', 180),
-    close = troops(scene, 'red', 'near', 400),
+    close = troops(scene, 'red', 'near', 900),
     far = troops(scene, 'red', 'far', 1200);
   const shade = shadows(scene),
     ring = footRing(0.68, 0.634, 0x64ff35, 0.94, scene),
@@ -194,15 +194,22 @@ export function makeView(canvas, stage) {
   resize();
   function draw(s, time, dt, advance, mode) {
     if (!sprites) mode = '3d';
+    const variant=s.round%3;
+    if(!bosses[variant]){bosses[variant]=createBoss(variant);scene.add(bosses[variant].root);}
+    for(const model of bosses)if(model)model.root.visible=false;
+    const boss=bosses[variant];
     const playing = s.playing,
       is3d = mode !== 'ai';
     const mix = 1 - Math.exp(-8.5 * dt);
-    cameraX += (s.x * 0.94 - cameraX) * mix;
+    const finishFocus = s.phase === 'won' ? THREE.MathUtils.smoothstep(s.endTime, 0, 0.64) : 0;
+    const focusX = THREE.MathUtils.lerp(s.x * 0.94, s.boss.x, finishFocus);
+    const focusZ = (s.boss.z + 5.4) * finishFocus;
+    cameraX += (focusX - cameraX) * mix;
     shake = Math.max(0, shake - dt * 1.75);
     const jx = Math.sin(time * 58) * shake * shake * 0.19,
       jy = Math.sin(time * 72) * shake * shake * 0.12;
-    camera.position.set(cameraX + jx, 15.0 + jy, 13.2);
-    camera.lookAt(cameraX + 0.06 + jx, 0.12, -7.45);
+    camera.position.set(cameraX + jx, 15.0 + jy - finishFocus * 1.2, 13.2 + focusZ);
+    camera.lookAt(cameraX + 0.06 + jx, 0.12, -7.45 + focusZ);
     camera.updateMatrixWorld();
     clockUniform.value = time;
     strideUniform.value = playing ? 1 : 0.13;
@@ -268,7 +275,7 @@ export function makeView(canvas, stage) {
     captain.root.position.set(
       s.x,
       dead ? Math.sin(Math.min(1, s.endTime / 0.33) * Math.PI) * 0.68 : 0,
-      0,
+      s.captainZ,
     );
     captain.root.rotation.set(0, -s.velocity * 0.018, dead ? -s.endTime * 5 : 0);
     captain.root.scale.setScalar(mainSize * (dead ? Math.max(0.05, 1 - s.endTime * 2) : 1));
@@ -279,24 +286,26 @@ export function makeView(canvas, stage) {
       merge: Math.max(s.mergeGlow, s.hurt * 0.62),
       lean: THREE.MathUtils.clamp(s.velocity / 9, -1, 1),
     });
-    boss.root.visible = is3d && (!win || s.endTime < 1.08);
-    boss.root.position.set(s.boss.x, 0, s.boss.z);
+    boss.root.visible = is3d || variant!==0;
+    const drop=win?THREE.MathUtils.smoothstep(s.endTime,.25,.92):0;
+    const bounce=win&&s.endTime>.92?Math.sin((s.endTime-.92)*19)*Math.exp(-9*(s.endTime-.92)):0;
+    boss.root.position.set(s.boss.x-.26*drop,.27*drop+Math.max(0,bounce)*.16,s.boss.z-.62*drop);
     boss.root.rotation.set(
-      win ? -Math.min(1, s.endTime / 0.75) * 1.43 : 0,
+      -1.49*drop+.13*bounce,
       0,
-      win ? Math.min(1, s.endTime) * -0.2 : 0,
+      -.30*drop,
     );
     boss.animate({
       time,
       run: playing ? (s.boss.active ? 0.91 : 0.45) : 0.12,
       slam: s.boss.slam,
-      hit: s.boss.hit,
+      hit: s.boss.hit, defeat:win?s.endTime:0,
     });
-    if (!dead) shade.put(s.x, 0, 1.3 * mainSize);
-    if (!win || s.endTime < 1) shade.put(s.boss.x, s.boss.z, 3.9, 1.12);
+    if (!dead) shade.put(s.x, s.captainZ, 1.3 * mainSize);
+    shade.put(s.boss.x,s.boss.z-drop,3.9,1.12+drop*.65);
     for (const r of [glow, ring]) {
       r.visible = !dead;
-      r.position.set(s.x, 0.048, 0);
+      r.position.set(s.x, 0.048, s.captainZ);
       r.scale.setScalar(mainSize);
     }
     shade.end();

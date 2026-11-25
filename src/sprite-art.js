@@ -481,7 +481,7 @@ export async function createSpriteArt(scene) {
         batches.captain.add(
           s.x,
           0,
-          0,
+          s.captainZ,
           size,
           size * (1 - 0.55 * fade),
           step * 0.83,
@@ -495,9 +495,9 @@ export async function createSpriteArt(scene) {
         );
       }
       const b = s.boss;
-      if (s.phase !== 'won' || s.endTime < 0.87) {
-        const down = s.phase === 'won' ? smooth(s.endTime, 0, 0.87) : 0;
-        const fade = 1 - smooth(down, 0.76, 1);
+      if(s.round%3===0) {
+        const down = s.phase === 'won' ? smooth(s.endTime, .25, .92) : 0;
+        const fade = 1;
         batches.boss.add(
           b.x,
           0,

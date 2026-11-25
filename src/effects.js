@@ -549,9 +549,14 @@ export function createEffects(scene) {
   function burst(kind, x, y, z, strength = 1) {
     const s = clamp(strength, 0.62, 2.05);
     switch (kind) {
+      case 'finisher':
+        scatterSparks(x,y,z,1.35,16);
+        add(sprites.flash,x,y,z,.65,1.45,.13,{color:palette.pearl});
+        return;
       case 'hit':
         if (hitCredit < 1) return;
         hitCredit--;
+        scatterSparks(x,y,z,.48,3);
         add(sprites.glint, x, y, z, 0.26, 0.47, 0.105, {
           color: palette.aqua,
           angle: between(0, TAU),
@@ -610,6 +615,7 @@ export function createEffects(scene) {
         scatterSparks(x, 0.8, z, s, 7);
         return;
       case 'plus': {
+        add(sprites.wave,x,.09,z,.12,1.28,.23,{flat:true,color:palette.aqua});
         const base = Math.max(0, y);
         add(sprites.goldWave, x, 0.055, z, 0.22, 0.96, 0.34, {
           flat: true,
@@ -633,6 +639,7 @@ export function createEffects(scene) {
         return;
       }
       case 'merge': {
+        add(sprites.goldWave,x,.12,z,2.15,.32,.27,{flat:true,color:palette.gold});
         const floorSize = clamp(s * 1.55, 1.5, 2.5);
         add(sprites.goldWave, x, 0.061, z, 0.38, floorSize, 0.46, {
           flat: true,
@@ -680,18 +687,22 @@ export function createEffects(scene) {
     }
   }
 
+  const forward = new THREE.Vector3(0, 0, -1);
+  const heading = new THREE.Vector3();
   function packProjectiles(list, dt) {
     let bulletCount = 0,
       rocketCount = 0;
     pose.rotation.set(0, 0, 0);
     for (const p of list) {
+      heading.set(p.dirX, p.dirY, p.dirZ);
+      pose.quaternion.setFromUnitVectors(forward, heading);
       if (p.kind === 'shot') {
         if (bulletCount >= shots.instanceMatrix.count) continue;
         pose.position.set(p.x, p.y, p.z);
-        pose.scale.set(1, 1, 1);
+        pose.scale.set(1.22, 1.22, 1.55);
         pose.updateMatrix();
         shots.setMatrixAt(bulletCount++, pose.matrix);
-        marks.write(p.x, p.y, p.z + 0.035, 0.155, 0.92, true, sprites.glow, palette.blue, 0.66);
+        marks.write(p.x - heading.x * .12, p.y - heading.y * .12, p.z - heading.z * .12, 0.155, 0.92, true, sprites.glow, palette.blue, 0.66);
       } else if (p.kind === 'rocket' && rocketCount < rockets.instanceMatrix.count) {
         const size = Math.min(1.54, 1 + 0.045 * Math.sqrt(Math.max(0, p.power || 0)));
         const age = p.age || 0;
@@ -703,9 +714,9 @@ export function createEffects(scene) {
         pose.updateMatrix();
         flames.setMatrixAt(rocketCount++, pose.matrix);
         marks.write(
-          p.x,
-          p.y,
-          p.z + 0.73 * size,
+          p.x - heading.x * .73 * size,
+          p.y - heading.y * .73 * size,
+          p.z - heading.z * .73 * size,
           0.7 * size,
           1.9 * size,
           true,
@@ -716,9 +727,9 @@ export function createEffects(scene) {
         if (dt > 0 && Math.floor(age * 14) !== Math.floor(Math.max(0, age - dt) * 14)) {
           add(
             sprites.smoke,
-            p.x + between(-0.1, 0.1),
-            p.y,
-            p.z + 1.03 * size,
+            p.x - heading.x * size + between(-0.1, 0.1),
+            p.y - heading.y * size,
+            p.z - heading.z * size,
             0.22 * size,
             0.57 * size,
             0.29,

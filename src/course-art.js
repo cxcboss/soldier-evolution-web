@@ -103,7 +103,7 @@ function makeSignTexture(type) {
   gradient.addColorStop(1, merge ? '#efbb09' : '#1276d7');
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
-  const label = merge ? 'Merge' : '+1';
+  const label = merge ? '升炮' : '+1';
   const fontSize = merge ? 122 : 147;
   ctx.font = `900 ${fontSize}px "Arial Rounded MT Bold", "Arial Black", "Helvetica Neue", Arial, sans-serif`;
   ctx.textAlign = 'center';
@@ -218,12 +218,15 @@ function gateBatch(group, type, shadowMaterial) {
     // Size against the visible records, so long courses can stream an arbitrary number of gates.
     let visible = 0;
     for (const gate of gates)
-      if (gate.active && gate.type === type && gate.z >= FAR && gate.z < NEAR) visible++;
+      if ((gate.active || gate.pop<.28) && gate.type === type && gate.z >= FAR && gate.z < NEAR) visible++;
     if (visible > capacity) allocate(THREE.MathUtils.ceilPowerOfTwo(visible));
     let index = 0;
     for (const gate of gates) {
-      if (!gate.active || gate.type !== type || gate.z < FAR || gate.z >= NEAR) continue;
-      transform.makeTranslation(gate.x, 0, gate.z);
+      if ((!gate.active && !(gate.pop<.28)) || gate.type !== type || gate.z < FAR || gate.z >= NEAR) continue;
+      const t=gate.active?0:gate.pop/.28;
+      const size=(1+.24*Math.sin(Math.PI*t))*(1-t*t);
+      transform.makeScale(size,size*(1+.18*Math.sin(t*Math.PI)),size);
+      transform.setPosition(gate.x+(.22*(gate.x<0?1:-1))*t, Math.sin(t*Math.PI)*.38,gate.z);
       meshes[0].setMatrixAt(index++, transform);
     }
     for (const mesh of meshes) mesh.count = index;

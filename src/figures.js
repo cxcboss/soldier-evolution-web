@@ -910,7 +910,7 @@ function jacket(p) {
   }
 }
 
-function bossHead(neck, palette) {
+function bossHead(neck, palette, variant) {
   const p = new Parts();
   p.shape(
     [
@@ -1005,6 +1005,7 @@ function bossHead(neck, palette) {
   for (const s of [-1, 1]) {
     p.ell(0xe3942b, [s * 0.09, 0.282, 0.327], [0.097, 0.032, 0.036], [0, s * 0.1, -s * 0.21]);
   }
+  if (variant === 0) {
   // The swept quiff consists of interlocking, bent locks with broad roots,
   // bright ridges and tapered tips. It follows the skull at the sides.
   p.shape(
@@ -1050,10 +1051,33 @@ function bossHead(neck, palette) {
       { sides: 11, power: 0.86 },
     );
   }
+  } else {
+    const pilot = variant === 1;
+    const crown = pilot ? 0x6a4132 : 0x39374b;
+    p.shape([[.53,.39,.34,0,-.02],[.65,.445,.38],[.83,.43,.395],[.94,.34,.31],[1.01,.13,.12]], crown,{sides:32});
+    for(const sign of [-1,1]){
+      if(pilot){
+        p.ell(0x583329,[sign*.39,.52,0],[.10,.22,.21]);
+        p.ell(0xd69c55,[sign*.445,.54,.03],[.065,.14,.13],zero,'metal');
+        p.ell(0x553521,[sign*.178,.737,.335],[.196,.134,.09],[0,sign*.29,sign*.09]);
+        p.ell(0xf2bd65,[sign*.178,.744,.391],[.181,.119,.061],[0,sign*.29,sign*.09],'metal');
+        p.ell(0x296b83,[sign*.178,.744,.425],[.15,.09,.048],[0,sign*.29,sign*.09],'lacquer');
+        p.ell(0x99e2e8,[sign*.17,.771,.458],[.083,.013,.009],[0,sign*.28,.19]);
+      } else {
+        p.ell(0xf3bc59,[sign*.37,.66,.16],[.046,.05,.023],zero,'metal');
+      }
+    }
+    if(!pilot){
+      p.shape([[.69,.42,.39],[.75,.54,.47,0,.034],[.86,.53,.48,0,.045],[.93,.46,.43,0,.055]],0x982b39,{sides:36});
+      p.ell(0x262338,[0,.657,.275],[.413,.044,.29],[-.13,0,0],'lacquer');
+      p.add(stroke([[-.34,.72,.27],[0,.70,.408],[.34,.72,.27]],.022),0xe8ac4c);
+      p.ell(0xffc964,[0,.812,.50],[.083,.089,.022],zero,'metal');
+    }
+  }
   p.attach(neck, palette);
 }
 
-export function createBoss() {
+export function createBoss(variant=0) {
   const root = new THREE.Group();
   const palette = finishes();
   const carriage = joint(root);
@@ -1131,14 +1155,19 @@ export function createBoss() {
     { sides: 18, power: 0.88 },
   );
   jacket(core);
+  for(const sign of [-1,1]){
+    core.ell(variant===1?0x654537:0x992638,[sign*.95,1.0,-.035],[.32,.13,.37],[0,0,-sign*.32],'lacquer');
+    core.add(stroke([[sign*.71,1.12,.08],[sign*.91,1.115,.17],[sign*1.12,1.015,.18]],.029),0xf6bc61);
+  }
+  for(let i=0;i<3;i++)core.box([0xf2b24d,0x46a9be,0xc74c39][i],[.64+.082*i,.62,.528],[.07,.067,.027],zero,'metal');
   core.attach(torso, palette);
   const neck = joint(torso, 0, 1.413, 0.034);
-  neck.scale.x = 1.075;
-  bossHead(neck, palette);
+  neck.scale.set(1.24,1.08,1.17);
+  bossHead(neck, palette, variant);
   const arms = [bossArm(torso, -1, palette), bossArm(torso, 1, palette)];
   const clamp = THREE.MathUtils.clamp;
   const smooth = (low, high, value) => THREE.MathUtils.smoothstep(value, low, high);
-  function animate({ time = 0, run = 0, slam = 0, hit = 0 } = {}) {
+  function animate({ time = 0, run = 0, slam = 0, hit = 0, defeat = 0 } = {}) {
     const stride = time * 6.48;
     const wind = smooth(0.02, 0.53, slam) * (1 - smooth(0.59, 0.79, slam));
     const impact = smooth(0.58, 0.78, slam) * (1 - smooth(0.88, 1, slam));
@@ -1159,6 +1188,16 @@ export function createBoss() {
         sign * Math.sin(stride) * 0.17 * walk - wind * 2.43 - impact * 0.94;
       arms[i].shoulder.rotation.z = sign * (0.041 + 0.26 * wind - 0.065 * impact);
       arms[i].elbow.rotation.x = -0.105 - wind * 0.71 - impact * 0.09;
+    }
+    if(defeat>0){
+      const buckle=smooth(.12,.53,defeat), relax=smooth(.83,1.23,defeat);
+      torso.position.y-=.42*buckle; torso.rotation.z-=.19*buckle;
+      neck.rotation.x+=.27*buckle;
+      for(const [i,arm] of arms.entries()){
+        arm.shoulder.rotation.z+=(i?1:-1)*(.76*buckle-.46*relax);
+        arm.elbow.rotation.x-=.54*buckle-.32*relax;
+      }
+      leftLeg.rotation.x+=.62*buckle;rightLeg.rotation.x-=.36*buckle;
     }
     const glow = clamp(hit, 0, 1);
     palette.cloth.emissive.setRGB(glow * 0.44, glow * 0.31, glow * 0.21);
