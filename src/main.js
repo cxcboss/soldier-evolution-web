@@ -1,5 +1,7 @@
 import { Battle } from './battle.js';
 import { supplies, lastStage } from './supplies.js';
+import { campaign } from './campaign.js';
+import { bosses } from './boss-skills.js';
 import { makeView } from './view.js';
 import { createAudio } from './audio.js';
 
@@ -13,12 +15,14 @@ const dlg = $('veil'),
   tip = $('tip');
 const artNames = { hybrid: '混合', ai: 'AI 贴图', '3d': '纯 3D' };
 const artDescriptions = {
-  hybrid: '随队小兵和冲锋红兵用 AI 角色图，队长、Boss 和密集兵阵用 3D。',
-  ai: '队长和小兵使用 AI 角色图，Boss 使用原画建模。',
+  hybrid: '队长、首领和兵阵使用 3D，随队小兵使用原画。',
+  ai: '使用原画角色和动态贴图。',
   '3d': '所有角色都使用 3D 模型，可看清跑动、炮身后坐和双拳砸地。',
 };
 const coarse = matchMedia('(pointer:coarse)').matches;
-$('instruction').textContent = coarse ? '左右拖动 · 自动开火' : '← → 或 A / D 移动 · 自动开火';
+$('instruction').textContent = coarse
+  ? '左右拖动 · 下拉后撤 · 自动开火'
+  : '方向键 / WASD 移动 · 自动开火';
 function read(key) {
   try {
     return localStorage.getItem(key);
@@ -51,6 +55,7 @@ let accumulator = 0,
   toldWall = false,
   toldBoss = false,
   toldClear = false,
+  lastHint = 0,
   activePointer = null;
 const keys = new Set(),
   audio = createAudio();
@@ -66,6 +71,19 @@ const battle = new Battle((e) => {
   if (e.kind !== 'smallShot' && e.kind !== 'loss') view?.feedback(e);
   audio.play(e.kind, e.strength);
 });
+const requestedStage = Number(new URL(location.href).searchParams.get('stage'));
+if (Number.isInteger(requestedStage) && requestedStage >= 1 && requestedStage <= lastStage)
+  battle.reset(requestedStage);
+for (const route of campaign) {
+  const button = document.createElement('button'),
+    number = document.createElement('b');
+  number.textContent = String(route.number).padStart(2, '0');
+  button.append(number, document.createTextNode(route.name));
+  button.dataset.level = route.number;
+  button.setAttribute('aria-label', '第 ' + route.number + ' 关 ' + route.name);
+  button.addEventListener('click', () => restart(route.number));
+  $('stageList').append(button);
+}
 function release() {
   keys.clear();
   activePointer = null;
@@ -99,6 +117,9 @@ function start() {
 function restart(level = battle.stage) {
   release();
   battle.reset(level);
+  view.prepareBoss(battle.boss.kind).then(() => {
+    needsPaint = true;
+  });
   view.reset(battle.x);
   accumulator = 0;
   visualTime = 0;
@@ -106,6 +127,10 @@ function restart(level = battle.stage) {
   toldWall = false;
   toldBoss = false;
   toldClear = false;
+  lastHint = 0;
+  const address = new URL(location.href);
+  address.searchParams.set('stage', battle.stage);
+  history.replaceState(null, '', address);
   start();
 }
 function showPanel(which) {
@@ -116,6 +141,17 @@ function showPanel(which) {
   needsPaint = true;
   dlg.hidden = false;
   $('options').hidden = which !== 'art';
+  $('stageList').hidden = which !== 'levels';
+  $('dialog').classList.toggle('levels', which === 'levels');
+  $('selectStage').hidden = which !== 'pause' && which !== 'result';
+  if (which === 'levels') {
+    audio.pause();
+    $('dialogTitle').textContent = '选择关卡';
+    $('detail').textContent = '';
+    $('continue').textContent = '返回';
+    for (const button of $('stageList').children)
+      button.setAttribute('aria-current', String(+button.dataset.level === battle.stage));
+  }
   $('secondary').hidden = which !== 'pause';
   if (which === 'art') {
     audio.pause();
@@ -127,7 +163,7 @@ function showPanel(which) {
   if (which === 'pause') {
     audio.pause();
     $('dialogTitle').textContent = '已暂停';
-    $('detail').textContent = '';
+    $('detail').textContent = '第 ' + battle.stage + ' 关 · ' + battle.route.name;
     $('continue').textContent = '继续游戏';
   }
   if (which === 'result') {
@@ -138,6 +174,13 @@ function showPanel(which) {
       $('detail').textContent = `击败 Boss，击退 ${battle.score} 名红兵。`;
     } else {
       const losses = {
+        signature: [
+          '队长出局',
+          bosses[battle.boss.kind].name + '的' + bosses[battle.boss.kind].skill + '命中了队长。',
+        ],
+        bossShot: ['队长出局', '队长被 Boss 的弹幕击倒。'],
+        gap: ['队长坠桥', '遇到缺口时，提前换道，或带上架桥补给。'],
+        infantry: ['小队全灭', '红兵已越过防线。'],
         wall: ['队长出局', '队长被硬墙推出了跑道。'],
         breach: ['防线失守', 'Boss 突破了防线。'],
         slam: ['队长出局', '队长被 Boss 的落地冲击击倒。'],
@@ -152,7 +195,11 @@ function showPanel(which) {
     }
     $('continue').textContent = win && battle.stage < lastStage ? '下一关' : '再玩一次';
   }
-  $('continue').focus({ preventScroll: true });
+  if (which === 'levels') {
+    const current = $('stageList').querySelector('[aria-current=true]');
+    current.focus({ preventScroll: true });
+    current.scrollIntoView({ block: 'nearest' });
+  } else $('continue').focus({ preventScroll: true });
 }
 function hidePanel() {
   needsPaint = true;
@@ -171,7 +218,7 @@ function resume() {
     );
     return;
   }
-  if (old === 'art' && prev) {
+  if ((old === 'art' || old === 'levels') && prev) {
     showPanel(prev);
     return;
   }
@@ -179,6 +226,13 @@ function resume() {
     audio.unlock();
   } else if (battle.phase === 'ready') startButton.focus({ preventScroll: true });
 }
+function chooseLevel() {
+  if (!ready || (!battle.playing && battle.phase !== 'ready' && !battle.resultReady)) return;
+  returnPanel = panel;
+  showPanel('levels');
+}
+$('level').addEventListener('click', chooseLevel);
+$('selectStage').addEventListener('click', chooseLevel);
 $('continue').addEventListener('click', resume);
 $('secondary').addEventListener('click', () => restart());
 startButton.addEventListener('click', start);
@@ -203,12 +257,21 @@ canvas.addEventListener('pointerdown', (e) => {
   if (battle.phase === 'ready') start();
   if (!battle.playing) return;
   e.preventDefault();
-  activePointer = { id: e.pointerId, start: e.clientX, world: battle.targetX };
+  activePointer = {
+    id: e.pointerId,
+    start: e.clientX,
+    startY: e.clientY,
+    world: battle.targetX,
+    back: battle.targetZ,
+  };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!activePointer || e.pointerId !== activePointer.id || panel) return;
-  battle.aim(activePointer.world + ((e.clientX - activePointer.start) * 14.8) / stage.clientWidth);
+  battle.aim(
+    activePointer.world + ((e.clientX - activePointer.start) * 14.8) / stage.clientWidth,
+    activePointer.back + ((e.clientY - activePointer.startY) * 11) / stage.clientHeight,
+  );
 });
 function endPointer(e) {
   if (e.pointerId === activePointer?.id) activePointer = null;
@@ -216,7 +279,9 @@ function endPointer(e) {
 for (const name of ['pointerup', 'pointercancel', 'lostpointercapture'])
   canvas.addEventListener(name, endPointer);
 const left = ['ArrowLeft', 'KeyA'],
-  right = ['ArrowRight', 'KeyD'];
+  right = ['ArrowRight', 'KeyD'],
+  up = ['ArrowUp', 'KeyW'],
+  down = ['ArrowDown', 'KeyS'];
 window.addEventListener('keydown', (e) => {
   if (!ready || e.altKey || e.ctrlKey || e.metaKey) return;
   const k = e.code;
@@ -227,7 +292,7 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (left.includes(k) || right.includes(k)) {
+  if (left.includes(k) || right.includes(k) || up.includes(k) || down.includes(k)) {
     e.preventDefault();
     if (battle.phase === 'ready') start();
     keys.add(k);
@@ -269,9 +334,17 @@ function hud() {
   const level = $('level');
   const levelText = '第 ' + battle.stage + ' 关';
   if (level.textContent !== levelText) level.textContent = levelText;
+  level.title = battle.route.name + ' · 选择关卡';
   const active = Object.entries(battle.buffs).filter(([, time]) => time > 0);
-  const stateText = active
+  const activeText = active
     .map(([key, time]) => supplies[key].label + ' ' + Math.ceil(time) + '秒')
+    .join(' · ');
+  const stateText = [
+    activeText,
+    battle.planks ? '便桥 ×' + battle.planks : '',
+    battle.chill > 0 ? '霜冻 ' + Math.ceil(battle.chill) + '秒' : '',
+  ]
+    .filter(Boolean)
     .join(' · ');
   const buffs = $('buffs');
   if (buffs.textContent !== stateText) buffs.textContent = stateText;
@@ -285,10 +358,23 @@ function hud() {
     lastPower = power;
   }
   stage.dataset.phase = battle.phase;
+  const armor = $('armorMeter');
+  armor.hidden = !battle.playing || battle.armor === 3;
+  if (!armor.hidden) {
+    const p = view.project(battle.x, 1.94 * battle.visualScale, battle.captainZ);
+    armor.style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) + 'px)';
+    if (armor.dataset.value !== String(battle.armor)) {
+      armor.dataset.value = battle.armor;
+      armor.setAttribute('aria-label', '队长护甲 ' + battle.armor + ' / 3');
+    }
+  }
   const b = battle.boss;
   bossBar.hidden = !b.active || b.defeated || view.project(b.x, 0, b.z).y < 3;
   if (!bossBar.hidden) {
-    const p = view.project(b.x, 4.91 + b.lift * 1.38, b.z);
+    if ($('bossName').textContent !== bosses[b.kind].name)
+      $('bossName').textContent = bosses[b.kind].name;
+    const [height, offset] = bosses[b.kind].crown;
+    const p = view.project(b.x, height + b.lift, b.z + offset);
     bossBar.style.transform = `translate(${p.x.toFixed(1)}px,${Math.max(53, p.y).toFixed(1)}px)`;
   }
   if (b.hp !== lastHP) {
@@ -310,12 +396,16 @@ function hud() {
       toldClear = true;
       message('Boss 已倒下，清理剩余红兵', 2.3);
     }
+    if (battle.hint && battle.hint.id !== lastHint) {
+      lastHint = battle.hint.id;
+      message(battle.hint.text, 2.1);
+    }
     if (!tip.hidden && battle.elapsed >= tipUntil) tip.hidden = true;
   }
   if (!battle.playing && battle.phase !== 'ready') {
     tip.hidden = true;
     $('pause').hidden = true;
-    if (battle.endTime > 0.86 && !panel) showPanel('result');
+    if (battle.resultReady && !panel) showPanel('result');
   }
 }
 function loop(now) {
@@ -337,7 +427,8 @@ function loop(now) {
       accumulator += dt;
       while (accumulator >= 1 / 60) {
         const ax = Number(right.some((k) => keys.has(k))) - Number(left.some((k) => keys.has(k)));
-        battle.tick(1 / 60, ax);
+        const az = Number(down.some((k) => keys.has(k))) - Number(up.some((k) => keys.has(k)));
+        battle.tick(1 / 60, ax, az);
         advance += battle.worldAdvance;
         accumulator -= 1 / 60;
       }
@@ -382,6 +473,7 @@ async function boot() {
       fail('图形上下文已中断，请重新载入游戏。');
     });
     hasSprites = await view.assets;
+    await view.prepareBoss(battle.boss.kind);
     chooseArt(mode, false);
     ready = true;
     stage.dataset.phase = 'ready';

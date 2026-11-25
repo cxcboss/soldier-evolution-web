@@ -3,6 +3,7 @@ import { createCaptain, createTroopGeometry, fieldEquipment } from './figures.js
 import { loadBrawler } from './brawler.js';
 import { slamRadius, touchdown } from './brawler-motion.js';
 import { createCourseArt } from './course-art.js';
+import { createBossFX } from './boss-fx.js';
 import { createEffects } from './effects.js';
 import { createSpriteArt } from './sprite-art.js';
 import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
@@ -26,8 +27,8 @@ function paintedFace() {
         0.205 + 0.038 * Math.sin(t * Math.PI) - across * across * 0.07,
       );
       uv.push(
-        (104 + across * (23 + 23 * Math.sin(Math.PI * t * 0.73))) / 205,
-        1 - (145 - t * 60) / 300,
+        0.5 + across * (0.098 + 0.109 * Math.sin(Math.PI * t * 0.73)),
+        1 - (0.422 - t * 0.16),
       );
       if (row && col) {
         const n = row * 9 + col;
@@ -53,12 +54,15 @@ function troops(scene, side, detail, capacity) {
     shininess: 37,
     specular: 0x313744,
   });
+  const clothing = { value: null };
   mat.customProgramCacheKey = () => 'infantry-walk-' + side;
   mat.onBeforeCompile = (shader) => {
+    shader.uniforms.clothingMap = clothing;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
+        varying vec3 kitPosition;
         attribute float limb;
         attribute vec4 stepPose;
         varying float vGlow;
@@ -80,7 +84,7 @@ function troops(scene, side, detail, capacity) {
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-        vGlow = stepPose.x;
+        vGlow = stepPose.x; kitPosition = position;
         float arm = step(1.5,abs(limb));
         float leg = step(.5,abs(limb))*(1.0-arm);
         float stride = limb<0.0 ? stepPose.z : stepPose.y;
@@ -94,10 +98,18 @@ function troops(scene, side, detail, capacity) {
         transformed.x += stepPose.y*.018*position.y + sign(limb)*arm*.009*stride;`,
       );
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vGlow;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying float vGlow; varying vec3 kitPosition; uniform sampler2D clothingMap;',
+      )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
+      float front=smoothstep(.035,.10,kitPosition.z);
+      float cloth=front*smoothstep(.21,.26,kitPosition.y)*(1.-smoothstep(.435,.49,kitPosition.y));
+      vec2 fabricUV=vec2(.50+kitPosition.x*1.77,kitPosition.y*1.27);
+      vec4 fabric=texture2D(clothingMap,fabricUV);
+      diffuseColor.rgb=mix(diffuseColor.rgb,fabric.rgb,cloth*fabric.a*.67);
       if (vGlow <= -1.0) {
         vec3 faded = mix(diffuseColor.rgb,vec3(dot(diffuseColor.rgb,vec3(.30,.59,.11))),.34)*.74;
         diffuseColor.rgb = mix(faded,vec3(1.,.85,.64),clamp(-vGlow-1.,0.,1.)*.64);
@@ -114,6 +126,8 @@ function troops(scene, side, detail, capacity) {
   let count = 0;
   return {
     paint(texture) {
+      clothing.value = texture;
+      if (side !== 'red') return;
       const geo = paintedFace();
       geo.setAttribute('stepPose', motion);
       const mat = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
@@ -285,18 +299,20 @@ export function makeView(canvas, stage) {
   scene.add(support);
   const kits = {};
   const kitMaterial = new THREE.MeshPhongMaterial({ vertexColors: true });
-  for (const role of ['gunner', 'guard', 'bomber']) {
+  for (const role of ['gunner', 'guard', 'bomber', 'standard', 'vault', 'courier']) {
     const mesh = new THREE.InstancedMesh(fieldEquipment(role), kitMaterial, 32);
     mesh.frustumCulled = false;
     scene.add(mesh);
     kits[role] = mesh;
   }
+  const drawBossSkills = createBossFX(scene);
   const course = createCourseArt(scene),
     effects = createEffects(scene);
   let sprites = null;
   const spritesReady = createSpriteArt(scene)
     .then((result) => {
       sprites = result;
+      blue.paint(result.allyTexture);
       close.paint(result.gruntTexture);
       far.paint(result.gruntTexture);
       return true;
@@ -323,7 +339,6 @@ export function makeView(canvas, stage) {
   resize();
   function draw(s, time, dt, advance, mode) {
     if (!sprites) mode = '3d';
-    const variant = (s.stage - 1) % 3;
     const playing = s.playing,
       is3d = mode !== 'ai';
     const mix = 1 - Math.exp(-8.5 * dt);
@@ -346,7 +361,7 @@ export function makeView(canvas, stage) {
     camera.position.set(cameraX + jx, 15.0 + jy - finishFocus * 1.2, 13.2 + focusZ);
     camera.lookAt(cameraX + 0.06 + jx, 0.12, -7.45 + focusZ);
     camera.updateMatrixWorld();
-    const walk = playing ? 1 : 0;
+    const walk = playing || s.overrun ? 1 : 0;
     const step = time * 10.8;
     course.update(s);
     shade.begin();
@@ -357,7 +372,18 @@ export function makeView(canvas, stage) {
       for (const e of c.units) {
         if (!e.alive || e.z < -61) continue;
         if (is3d) {
-          (e.z < -18 ? far : close).put(e.x, 0, e.z, e.size, 0, 0, e.yaw, 0, marchAngle(e), walk);
+          (e.z < -18 ? far : close).put(
+            e.x,
+            e.lift || 0,
+            e.z,
+            e.size,
+            0,
+            0,
+            e.yaw,
+            0,
+            marchAngle(e),
+            walk,
+          );
         }
         if (e.z >= -32) shade.put(e.x, e.z, 0.64);
       }
@@ -366,13 +392,14 @@ export function makeView(canvas, stage) {
       if (!e.alive) continue;
       const kit = kits[e.role];
       if (kit && kit.count < kit.instanceMatrix.count) {
-        pose.position.set(e.x, 0.012, e.z);
+        pose.position.set(e.x, (e.lift || 0) + 0.012, e.z);
         pose.rotation.set(0, e.yaw, 0);
         pose.scale.setScalar(e.size);
         pose.updateMatrix();
         kit.setMatrixAt(kit.count++, pose.matrix);
       }
-      if (mode === '3d') close.put(e.x, 0, e.z, e.size, 0, 0, e.yaw, 0, marchAngle(e), walk);
+      if (mode === '3d')
+        close.put(e.x, e.lift || 0, e.z, e.size, 0, 0, e.yaw, 0, marchAngle(e), walk);
       shade.put(e.x, e.z, 0.67);
     }
     for (const kit of Object.values(kits)) kit.instanceMatrix.needsUpdate = kit.count > 0;
@@ -415,7 +442,7 @@ export function makeView(canvas, stage) {
     }
     if (s.buffs.drone > 0)
       for (const side of [-1, 1])
-        crystal(s.x + side * 1.15, 1.3 + 0.06 * Math.sin(time * 6), -0.32, 1);
+        crystal(s.x + side * 1.15, 1.3 + 0.06 * Math.sin(time * 6), s.captainZ - 0.32, 1);
     support.count = supportCount;
     support.instanceMatrix.needsUpdate = supportCount > 0;
     shield.visible = playing && s.buffs.shield > 0;
@@ -424,39 +451,57 @@ export function makeView(canvas, stage) {
       shield.scale.set(1.52 * s.scale, 1.55, 1.28 * s.scale);
     }
     for (const e of s.falling) {
-      const scale = (e.size || 1) * (1 - Math.pow(Math.min(1, e.t / 1.02), 4));
-      if (is3d)
+      const drop = THREE.MathUtils.smoothstep(e.t, 0, 0.42);
+      const scale =
+        (e.size || 1) *
+        (e.prone
+          ? s.overrun
+            ? 1
+            : 1 - THREE.MathUtils.smoothstep(e.t, 1.78, 2.1)
+          : 1 - Math.pow(Math.min(1, e.t / 1.02), 4));
+      if (is3d && !(mode === 'hybrid' && e.side === 'blue' && e.prone))
         (e.side === 'red' ? close : blue).put(
           e.x,
-          e.y,
+          e.prone ? 0.15 * drop : e.y,
           e.z,
           scale,
           -2 + THREE.MathUtils.smoothstep(e.t, 0.018, 0.15),
-          e.spin * e.t,
-          e.phase,
-          e.roll * e.t,
+          e.prone ? 1.48 * drop : e.spin * e.t,
+          e.prone ? 0.12 * e.dir : e.phase,
+          e.prone ? 0.16 * drop * e.dir : e.roll * e.t,
         );
       if (e.y < 2) shade.put(e.x, e.z, 0.64 * scale);
     }
     const dead = s.phase === 'lost',
       mainSize = s.visualScale;
-    captain.root.visible = is3d && (!dead || s.endTime < 0.32);
+    const overrunFall = s.overrun ? THREE.MathUtils.smoothstep(s.endTime, 0, 0.5) : 0;
+    const otherFall = dead && !s.overrun;
+    captain.root.visible = is3d && (!otherFall || s.endTime < 0.4);
+    const rescueLift = s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0;
     captain.root.position.set(
       s.x,
-      dead ? Math.sin(Math.min(1, s.endTime / 0.33) * Math.PI) * 0.68 : 0,
+      s.overrun
+        ? 0.25 * overrunFall
+        : otherFall
+          ? Math.sin(Math.min(1, s.endTime / 0.4) * Math.PI) * 0.64
+          : rescueLift,
       s.captainZ,
     );
-    captain.root.rotation.set(0, -s.velocity * 0.018, dead ? -s.endTime * 5 : 0);
-    captain.root.scale.setScalar(mainSize * (dead ? Math.max(0.05, 1 - s.endTime * 2) : 1));
+    captain.root.rotation.set(
+      1.45 * overrunFall,
+      dead ? 0 : -s.velocity * 0.018,
+      otherFall ? -s.endTime * 5 : -0.16 * overrunFall,
+    );
+    captain.root.scale.setScalar(mainSize * (otherFall ? Math.max(0.05, 1 - s.endTime * 2) : 1));
     captain.animate({
       time,
-      run: playing ? 0.91 : 0.09,
+      run: playing ? 0.91 : dead ? 0 : 0.09,
       recoil: s.recoil,
       merge: Math.max(s.mergeGlow, s.hurt * 0.62),
       lean: THREE.MathUtils.clamp(s.velocity / 9, -1, 1),
     });
     const b = s.boss;
-    boss.root.visible = b.active && b.z < 9;
+    boss.root.visible = b.active && !b.removed && b.z < 9;
     const drop = THREE.MathUtils.smoothstep(defeatTime, 0.25, 0.92);
     const bounce =
       defeatTime > 0.92
@@ -469,14 +514,29 @@ export function makeView(canvas, stage) {
       b.z - 0.62 * drop,
     );
     boss.root.rotation.set(-1.49 * drop + 0.13 * bounce, 0, -0.3 * drop);
+    drawBossSkills(b);
+    const cast = b.skill;
+    const charge = cast
+      ? THREE.MathUtils.smoothstep(cast.age, 0, cast.warm) *
+        (1 - THREE.MathUtils.smoothstep(cast.age, cast.warm, cast.warm + 0.3))
+      : 0;
+    const release = cast
+      ? Math.sin(Math.PI * THREE.MathUtils.clamp((cast.age - cast.warm) / 0.52, 0, 1))
+      : 0;
     boss.pose({
+      charge,
+      release,
+      mode,
       time,
       walk: playing && b.active && !b.defeated ? 1 : 0,
       march: b.marched,
       attack: b.attackT,
       hit: b.hit,
       defeat: defeatTime,
-      variant,
+      kind: b.kind,
+      vault: b.vault?.t || 0,
+      brace: b.brace,
+      drive: b.special,
     });
     warning.visible = countdown.visible =
       playing && !b.defeated && b.attackT > 0 && b.attackT < touchdown;
@@ -485,8 +545,8 @@ export function makeView(canvas, stage) {
       countdown.position.set(b.landX, 0.051, b.landZ);
       countdown.scale.setScalar(0.3 + 0.7 * THREE.MathUtils.smoothstep(b.attackT, 0, touchdown));
     }
-    if (!dead) shade.put(s.x, s.captainZ, 1.3 * mainSize);
-    if (b.active) shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65);
+    if (!dead || s.overrun) shade.put(s.x, s.captainZ + overrunFall * 0.4, 1.3 * mainSize);
+    if (boss.root.visible) shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65);
     for (const r of [glow, ring]) {
       r.visible = !dead;
       r.position.set(s.x, 0.048, s.captainZ);
@@ -503,6 +563,7 @@ export function makeView(canvas, stage) {
   return {
     draw,
     assets,
+    prepareBoss: (kind) => modelReady.then(() => boss.prepare(kind)),
     resize,
     entryZ() {
       // Ground under the top screen edge in the normal play camera.
@@ -515,7 +576,8 @@ export function makeView(canvas, stage) {
     },
     feedback(e) {
       effects.burst(e.kind, e.x, e.y, e.z, e.strength);
-      if (e.kind === 'slam' || e.kind === 'wallBreak' || e.kind === 'victory') shake = 0.85;
+      if (e.kind === 'slam' || e.kind === 'wallBreak' || e.kind === 'bossBurst') shake = 0.85;
+      else if (e.kind === 'victory' || e.kind === 'vaultLand') shake = Math.max(shake, 0.5);
       else if (e.kind === 'impact') shake = Math.max(shake, 0.25);
     },
     reset(x) {

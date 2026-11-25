@@ -9,21 +9,28 @@ export const supplies = {
   plasma: { label: '电浆', hp: 45, tone: 'blue' },
   spread: { label: '双发', hp: 41, tone: 'gold' },
   drone: { label: '支援', hp: 45, tone: 'blue' },
+  reserve: { label: '+6', hp: 38, count: 6, tone: 'blue' },
+  engineer: { label: '架桥', hp: 35, tone: 'gold' },
+  medic: { label: '救援', hp: 30, tone: 'blue' },
+  frost: { label: '冰幕', hp: 37, tone: 'blue' },
   fever: { label: '狂热', hp: 48, tone: 'gold' },
 };
 
-export const lastStage = 10;
+export { lastStage } from './campaign.js';
+export function makeCard(x, at, type, stage) {
+  const hp = supplies[type].hp + (type === 'plus' ? Math.min(8, stage - 1) : (stage - 1) * 1.05);
+  return { x, at, z: -at, type, hp, maxHp: hp, active: true, flash: 0 };
+}
 
 export function courseCards(stage) {
   const gates = [];
   function add(x, at, type) {
-    const hp = supplies[type].hp + (stage - 1) * 2;
-    gates.push({ x, at, z: -at, type, hp, maxHp: hp, active: true, flash: 0 });
+    gates.push(makeCard(x, at, type, stage));
   }
   // One rescue is already in the opening firing lane, as in the bridge game.
   add(0, 11, 'plus');
-  const yellow = ['merge', 'blast', 'rapid', 'merge', 'spread', 'merge', 'fever'];
-  const blue = ['squad', 'shield', 'squad', 'plasma', 'plus', 'drone'];
+  const yellow = ['merge', 'blast', 'rapid', 'merge', 'spread', 'engineer', 'fever', 'merge'];
+  const blue = ['squad', 'shield', 'squad', 'plasma', 'medic', 'drone', 'reserve', 'frost'];
   const offset = stage - 1;
   for (let i = 0; i < 15; i++) {
     add(-4.65, 16 + i * 13.2, yellow[i === 0 ? 0 : (i + offset) % yellow.length]);

@@ -356,6 +356,9 @@ const palette = Object.fromEntries(
     gold: '#ffd02f',
     orange: '#ff861d',
     fire: '#ff5a16',
+    violet: '#c181ff',
+    frost: '#a0edff',
+    surf: '#68f4d5',
     dust: '#ece0cd',
     smoke: '#928180',
     steel: '#8f99a3',
@@ -528,7 +531,13 @@ export function createEffects(scene) {
 
   function add(tile, x, y, z, start, end, life, opts = {}) {
     if (particles.length >= 260) {
-      if (tile !== sprites.plus && tile !== sprites.arrow && tile !== sprites.crack) return;
+      if (
+        !opts.priority &&
+        tile !== sprites.plus &&
+        tile !== sprites.arrow &&
+        tile !== sprites.crack
+      )
+        return;
       const drop = particles.findIndex(
         (p) => p.tile === sprites.smoke || p.tile === sprites.glint || p.tile === sprites.glow,
       );
@@ -633,24 +642,111 @@ export function createEffects(scene) {
     }
   }
 
+  const fireGeometry = new THREE.IcosahedronGeometry(1, 2);
+  const fireMaterial = new THREE.ShaderMaterial({
+    uniforms: { age: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    vertexShader: `varying vec3 orb; varying vec3 eye; varying vec3 n; void main(){
+      orb=position;vec4 p=modelViewMatrix*vec4(position,1.);n=normalize(normalMatrix*normal);
+      eye=normalize(-p.xyz);gl_Position=projectionMatrix*p;}`,
+    fragmentShader: `varying vec3 orb;varying vec3 eye;varying vec3 n;uniform float age;
+      void main(){float swirl=sin(orb.y*9.+sin(orb.z*5.+age*8.))*sin(orb.x*6.-age*6.);
+        float heat=clamp(max(0.,dot(normalize(n),normalize(eye)))+.13*swirl-age*.7,0.,1.);
+        vec3 fire=mix(vec3(.94,.16,.026),vec3(1.,.80,.20),smoothstep(.12,.53,heat));
+        fire=mix(fire,vec3(1.,.98,.77),smoothstep(.55,.86,heat));
+        gl_FragColor=vec4(fire,1.-smoothstep(.52,1.,age));}`,
+  });
+  const blast = new THREE.Group();
+  const lobes = [
+    [0, 0.2, 0, 1.02],
+    [-0.62, 0.06, 0.08, 0.65],
+    [0.55, 0.14, -0.2, 0.74],
+    [-0.16, 0.57, -0.13, 0.64],
+    [0.33, 0.36, 0.36, 0.48],
+  ];
+  for (const [x, y, z, r] of lobes) {
+    const orb = new THREE.Mesh(fireGeometry, fireMaterial);
+    orb.position.set(x, y, z);
+    orb.scale.setScalar(r);
+    orb.renderOrder = 3;
+    blast.add(orb);
+  }
+  blast.visible = false;
+  scene.add(blast);
+  let blastTime = 1;
   function burst(kind, x, y, z, strength = 1) {
     const s = clamp(strength, 0.62, 2.05);
     switch (kind) {
       case 'cardHit':
-        add(sprites.glint, x, y, z + 0.1, 0.35, 0.7, 0.12, {color: palette.pearl});
+        add(sprites.glint, x, y, z + 0.1, 0.35, 0.7, 0.12, { color: palette.pearl });
         scatterSparks(x, y, z, 0.45, 3);
         return;
       case 'supplyBreak':
-        add(sprites.flash, x, y, z, 0.46, 1.45, 0.13, {color: palette.pearl});
-        add(sprites.wave, x, 0.07, z, 0.4, 2.45, 0.32, {flat: true, color: palette.aqua});
+        add(sprites.flash, x, y, z, 0.46, 1.45, 0.13, { color: palette.pearl });
+        add(sprites.wave, x, 0.07, z, 0.4, 2.45, 0.32, { flat: true, color: palette.aqua });
         scatterSparks(x, y, z, 0.86, 10);
         return;
       case 'shieldHit':
-        add(sprites.wave, x, 0.1, z, 0.4, 1.75, 0.26, {flat: true, color: palette.aqua});
-        add(sprites.glint, x, y, z, 0.26, 0.68, 0.14, {color: palette.pearl});
+        add(sprites.wave, x, 0.1, z, 0.4, 1.75, 0.26, { flat: true, color: palette.aqua });
+        add(sprites.glint, x, y, z, 0.26, 0.68, 0.14, { color: palette.pearl });
         return;
       case 'hostileMuzzle':
-        add(sprites.flash, x, y, z, 0.32, 0.63, 0.14, {color: palette.orange});
+        add(sprites.flash, x, y, z, 0.32, 0.63, 0.14, { color: palette.orange });
+        return;
+      case 'bruiserCast':
+      case 'wardenCast':
+        for (const side of [-1, 1]) scatterSmoke(x + side * 0.6, 0.16, z, 1.0, 4, palette.dust);
+        return;
+      case 'diverCast':
+        for (const side of [-1, 1])
+          add(sprites.wave, x + side * 0.95, y, z, 0.32, 1.45, 0.32, { color: palette.surf });
+        return;
+      case 'drillCast':
+        scatterSmoke(x, 0.2, z, 1.21, 7, palette.violet);
+        return;
+      case 'kestrelCast':
+        add(sprites.glow, x, y, z + 0.43, 0.32, 1.37, 0.36, { color: palette.frost });
+        return;
+      case 'engineCast':
+        for (const side of [-1, 1])
+          add(sprites.flash, x + side * 0.72, y + 0.32, z - 0.2, 0.4, 1.12, 0.17, {
+            color: palette.orange,
+          });
+        return;
+      case 'bruiserStrike':
+      case 'wardenStrike':
+        add(sprites.crack, x, 0.043, z, 1.4, 2.55, 0.77, { flat: true, hold: 0.31 });
+        scatterSmoke(x, 0.16, z, 1.18, 8, palette.dust);
+        debris(x, 0.12, z, 7, 0.55, true);
+        return;
+      case 'diverStrike':
+        add(sprites.wave, x, 0.09, z, 0.31, 2.29, 0.46, { flat: true, color: palette.surf });
+        for (let k = 0; k < 9; k++) {
+          const a = (k * TAU) / 9;
+          add(sprites.glow, x, 0.22, z, 0.18, 0.06, 0.43, {
+            color: palette.aqua,
+            vx: Math.cos(a) * 2.1,
+            vz: Math.sin(a) * 2.1,
+            vy: 1.5,
+            gravity: 3.6,
+          });
+        }
+        return;
+      case 'drillStrike':
+        scatterSmoke(x, 0.17, z, 0.77, 5, palette.violet);
+        add(sprites.glint, x, 0.35, z, 0.26, 1.0, 0.19, { color: palette.violet });
+        return;
+      case 'kestrelStrike':
+        add(sprites.wave, x, 0.08, z, 0.35, 2.78, 0.54, { flat: true, color: palette.frost });
+        scatterSmoke(x, 0.28, z, 0.98, 7, palette.frost);
+        return;
+      case 'engineStrike':
+        add(sprites.flash, x, 0.45, z, 0.82, 2.2, 0.19, { color: palette.orange, priority: true });
+        add(sprites.wave, x, 0.07, z, 0.34, 2.63, 0.37, { flat: true, color: palette.gold });
+        scatterSmoke(x, 0.2, z, 1.1, 8, palette.smoke);
+        scatterSparks(x, 0.3, z, 1.08, 12);
         return;
       case 'finisher':
         scatterSparks(x, y, z, 1.35, 16);
@@ -796,10 +892,68 @@ export function createEffects(scene) {
         return;
       }
       case 'victory':
-        add(sprites.goldWave, x, 0.07, z, 0.5, 5.2 * s, 0.71, { flat: true, color: palette.gold });
-        add(sprites.flash, x, y + 0.3, z, 0.6, 2.8 * s, 0.24, { color: palette.pearl });
-        scatterSparks(x, y + 0.6, z, 1.6 * s, 19);
-        scatterSmoke(x, 0.25, z, 1.4, 8, palette.dust);
+      case 'vaultLand':
+        add(sprites.wave, x, 0.06, z, 0.55, kind === 'victory' ? 3.9 : 2.7, 0.33, {
+          flat: true,
+          color: palette.dust,
+          alpha: 0.7,
+        });
+        for (const side of [-1, 1]) scatterSmoke(x + side * 0.63, 0.12, z, 0.88, 4, palette.dust);
+        return;
+      case 'bossBurst':
+        blastTime = 0;
+        blast.position.set(x, 0.8, z);
+        blast.visible = true;
+        add(sprites.goldWave, x, 0.08, z, 0.6, 5.55, 0.48, {
+          flat: true,
+          color: palette.gold,
+          priority: true,
+        });
+        for (const [dx, dz, size] of [
+          [0, 0, 2.85],
+          [-0.58, 0.23, 1.65],
+          [0.67, -0.2, 1.9],
+        ]) {
+          add(sprites.glow, x + dx, y + 0.19, z + dz, size * 0.54, size * 1.13, 0.34, {
+            color: palette.orange,
+            vy: 0.83,
+            priority: true,
+          });
+          add(sprites.flash, x + dx, y + 0.22, z + dz, size * 0.31, size, 0.22, {
+            color: palette.gold,
+            angle: dx * 2.4,
+            vy: 0.9,
+            priority: true,
+          });
+        }
+        add(sprites.glint, x, y + 0.35, z, 0.8, 2.65, 0.13, {
+          color: palette.pearl,
+          priority: true,
+        });
+        debris(x, 0.42, z, 17, 0.91, true);
+        scatterSparks(x, y + 0.38, z, 1.57, 24);
+        scatterSmoke(x, 0.35, z, 1.5, 10, palette.smoke);
+        return;
+      case 'chainSnap':
+        for (const side of [-1, 1]) scatterSparks(x + side * 1.86, 1.04, z, 1.15, 9);
+        add(sprites.flash, x, y, z, 0.38, 1.4, 0.15, { color: palette.pearl });
+        return;
+      case 'discharge':
+        add(sprites.wave, x, 0.1, z, 0.45, 8.5, 0.35, { flat: true, color: palette.aqua });
+        add(sprites.flash, x, y + 0.45, z, 0.63, 3.4, 0.23, { color: palette.aqua });
+        for (let i = 0; i < 7; i++) {
+          const a = (i * TAU) / 7;
+          add(
+            sprites.glint,
+            x + Math.cos(a) * 1.46,
+            0.5,
+            z + Math.sin(a) * 1.46,
+            0.25,
+            1.03,
+            0.26,
+            { color: palette.pearl, angle: a },
+          );
+        }
         return;
     }
   }
@@ -885,13 +1039,32 @@ export function createEffects(scene) {
   }
 
   function update(dt, worldAdvance, projectiles, incoming = []) {
+    if (blast.visible) {
+      blastTime += dt;
+      const u = Math.min(1, blastTime / 0.44);
+      blast.position.z += worldAdvance;
+      blast.position.y += 0.74 * dt;
+      blast.scale.setScalar(0.28 + 0.94 * Math.sin(Math.PI * Math.sqrt(u)));
+      fireMaterial.uniforms.age.value = u;
+      if (u >= 1) blast.visible = false;
+    }
     const step = clamp(dt, 0, 0.12);
     hitCredit = Math.min(6, hitCredit + step * 21);
     marks.clear();
     packProjectiles(projectiles, step);
     for (const p of incoming) {
-      marks.write(p.x - p.vx * 0.038, p.y, p.z - p.vz * 0.038, 0.30, 0.52, false, sprites.glow, palette.fire, 0.8);
-      marks.write(p.x, p.y, p.z, 0.30, 0.34, false, sprites.glint, palette.gold, 0.98);
+      marks.write(
+        p.x - p.vx * 0.038,
+        p.y,
+        p.z - p.vz * 0.038,
+        0.3,
+        0.52,
+        false,
+        sprites.glow,
+        palette.fire,
+        0.8,
+      );
+      marks.write(p.x, p.y, p.z, 0.3, 0.34, false, sprites.glint, palette.gold, 0.98);
     }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
@@ -973,6 +1146,7 @@ export function createEffects(scene) {
   }
 
   function reset() {
+    blast.visible = false;
     particlePool.push(...particles);
     chipPool.push(...chips);
     particles.length = chips.length = 0;

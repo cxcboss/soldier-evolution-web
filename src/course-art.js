@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { block, part, combine } from './scenery-mesh.js';
+import { createTerrainArt } from './terrain-art.js';
+import { landscapes } from './campaign.js';
 import { supplies } from './supplies.js';
 
 const ROAD_WIDTH = 13.2;
@@ -10,31 +11,9 @@ const LENGTH = NEAR - FAR;
 const MIDPOINT = (NEAR + FAR) / 2;
 const GATE_TILT = -0.18;
 
-function block(w, h, d, bevel = 0) {
-  return bevel ? new RoundedBoxGeometry(w, h, d, 1, bevel) : new THREE.BoxGeometry(w, h, d);
-}
-
-function part(geometry, tint, x, y, z, rotation = null) {
-  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-  if (flat !== geometry) geometry.dispose();
-  flat.deleteAttribute('uv');
-  if (rotation) flat.applyQuaternion(new THREE.Quaternion().setFromEuler(rotation));
-  flat.translate(x, y, z);
-  const color = new THREE.Color(tint);
-  const count = flat.getAttribute('position').count;
-  const colors = new Float32Array(count * 3);
-  for (let i = 0; i < colors.length; i += 3) color.toArray(colors, i);
-  flat.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return flat;
-}
-
-function combine(pieces) {
-  const joined = mergeGeometries(pieces, false);
-  for (const piece of pieces) piece.dispose();
-  return joined;
-}
-
-function makeDeckTexture() {
+function makeDeckTexture(theme) {
+  const colors = landscapes[theme];
+  const base = parseInt(colors.floor.slice(1), 16);
   const canvas = document.createElement('canvas');
   canvas.width = 256;
   canvas.height = 192;
@@ -48,9 +27,9 @@ function makeDeckTexture() {
       const edge = Math.min(x, canvas.width - 1 - x);
       const shade = grain - Math.max(0, 1 - edge / 4) * 12;
       const index = (y * canvas.width + x) * 4;
-      pixels.data[index] = 189 + shade;
-      pixels.data[index + 1] = 179 + shade;
-      pixels.data[index + 2] = 188 + shade;
+      pixels.data[index] = (base >> 16) + shade;
+      pixels.data[index + 1] = ((base >> 8) & 255) + shade;
+      pixels.data[index + 2] = (base & 255) + shade;
       pixels.data[index + 3] = 255;
     }
   }
@@ -65,6 +44,63 @@ function makeDeckTexture() {
       ctx.fillRect(x - 1, y - 1, 2.5, 2.5);
     }
   }
+  const line = (x, y, xx, yy, color, w = 1) => {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(xx, yy);
+    ctx.stroke();
+  };
+  if (theme === 'timber') {
+    for (let i = 0; i < 8; i++) {
+      let y = i * 24;
+      line(0, y, 256, y, colors.joint, 2);
+      line(0, y + 2, 256, y + 2, '#efc398', 1);
+      for (let k = 0; k < 4; k++) {
+        let x = (i * 41 + k * 71) % 244;
+        ctx.strokeStyle = 'rgba(112,69,43,.20)';
+        ctx.beginPath();
+        ctx.moveTo(x, y + 12);
+        ctx.bezierCurveTo(x + 13, y + 6, x + 17, y + 15, x + 38, y + 10);
+        ctx.stroke();
+      }
+    }
+  } else if (theme === 'forge') {
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 4; j++) {
+        let x = i * 85 + 7,
+          y = j * 48 + 5;
+        ctx.strokeStyle = colors.joint;
+        ctx.strokeRect(x, y, 71, 35);
+        for (let h = 0; h < 4; h++) line(x + 7 + h * 4, y + 26, x + 12 + h * 4, y + 19, '#82939f');
+      }
+  } else if (theme === 'quarry' || theme === 'cinder') {
+    for (let j = 0; j < 4; j++) {
+      let y = j * 48;
+      line(0, y, 256, y + 1, colors.joint, 1.5);
+      for (let i = 0; i < 4; i++) {
+        let x = i * 76 + (j % 2) * 32;
+        line(x, y, x + 2, y + 48, colors.joint);
+      }
+    }
+  } else if (theme === 'ice') {
+    for (let i = 0; i < 12; i++) {
+      const x = (i * 63) % 249,
+        y = (i * 47) % 175;
+      line(x, y, x + 14, y + 13, '#e2f4fa', 1.4);
+      line(x + 7, y + 7, x + 17, y + 6, '#a0c4d7');
+    }
+  }
+  for (const x of [256 / 3, 512 / 3]) {
+    ctx.fillStyle = colors.line;
+    ctx.fillRect(x - 1.7, 0, 3.4, 192);
+    ctx.fillStyle = colors.rim;
+    ctx.fillRect(x - 0.25, 0, 1.2, 192);
+    for (let y = 7; y < 192; y += 48) {
+      ctx.fillRect(x - 1.6, y, 3, 12);
+    }
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapT = THREE.RepeatWrapping;
@@ -72,8 +108,11 @@ function makeDeckTexture() {
   return texture;
 }
 
-function makeRoad(group) {
-  const texture = makeDeckTexture();
+function makeRoad(group, terrain) {
+  const textures = new Map();
+  let active;
+  const texture = makeDeckTexture('quay');
+  textures.set('quay', texture);
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROAD_WIDTH, LENGTH),
     new THREE.MeshLambertMaterial({ map: texture }),
@@ -96,7 +135,17 @@ function makeRoad(group) {
     new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 18 }),
   );
   group.add(edging);
-  return texture;
+  terrain.cutDeck(floor.material);
+  terrain.cutDeck(edging.material);
+  return (s) => {
+    const theme = s.route.theme;
+    if (!textures.has(theme)) textures.set(theme, makeDeckTexture(theme));
+    if (active !== theme) {
+      floor.material.map = textures.get(theme);
+      active = theme;
+    }
+    floor.material.map.offset.y = (s.distance / 8) % 1;
+  };
 }
 
 function makeSignTexture(type) {
@@ -229,15 +278,26 @@ function gateBatch(group, type, shadowMaterial) {
     // Size against the visible records, so long courses can stream an arbitrary number of gates.
     let visible = 0;
     for (const gate of gates)
-      if ((gate.active || gate.pop<.28) && gate.type === type && gate.z >= FAR && gate.z < NEAR) visible++;
+      if ((gate.active || gate.pop < 0.28) && gate.type === type && gate.z >= FAR && gate.z < NEAR)
+        visible++;
     if (visible > capacity) allocate(THREE.MathUtils.ceilPowerOfTwo(visible));
     let index = 0;
     for (const gate of gates) {
-      if ((!gate.active && !(gate.pop<.28)) || gate.type !== type || gate.z < FAR || gate.z >= NEAR) continue;
-      const t=gate.active?0:gate.pop/.28;
-      const size=(1+.24*Math.sin(Math.PI*t)+gate.flash*.065)*(1-t*t);
-      transform.makeScale(size,size*(1+.18*Math.sin(t*Math.PI)),size);
-      transform.setPosition(gate.x+(.22*(gate.x<0?1:-1))*t, Math.sin(t*Math.PI)*.38,gate.z);
+      if (
+        (!gate.active && !(gate.pop < 0.28)) ||
+        gate.type !== type ||
+        gate.z < FAR ||
+        gate.z >= NEAR
+      )
+        continue;
+      const t = gate.active ? 0 : gate.pop / 0.28;
+      const size = (1 + 0.24 * Math.sin(Math.PI * t) + gate.flash * 0.065) * (1 - t * t);
+      transform.makeScale(size, size * (1 + 0.18 * Math.sin(t * Math.PI)), size);
+      transform.setPosition(
+        gate.x + 0.22 * (gate.x < 0 ? 1 : -1) * t,
+        Math.sin(t * Math.PI) * 0.38,
+        gate.z,
+      );
       meshes[0].setMatrixAt(index++, transform);
     }
     for (const mesh of meshes) mesh.count = index;
@@ -384,8 +444,15 @@ function makeWall(group, shadowMaterial) {
   const ctx = number.getContext('2d');
   const numberMap = new THREE.CanvasTexture(number);
   numberMap.colorSpace = THREE.SRGBColorSpace;
-  const numberPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.79),
-    new THREE.MeshBasicMaterial({map: numberMap, transparent: true, depthWrite: false, toneMapped:false}));
+  const numberPanel = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.8, 0.79),
+    new THREE.MeshBasicMaterial({
+      map: numberMap,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
   numberPanel.position.set(0, 0.84, 0.253);
   root.add(numberPanel);
   let lastHp;
@@ -436,7 +503,8 @@ export function createCourseArt(scene) {
   const root = new THREE.Group();
   root.name = 'Course';
   scene.add(root);
-  const deck = makeRoad(root);
+  const terrain = createTerrainArt(root);
+  const updateRoad = makeRoad(root, terrain);
   const shadowMaterial = new THREE.MeshBasicMaterial({
     color: 0x30324b,
     vertexColors: true,
@@ -445,30 +513,42 @@ export function createCourseArt(scene) {
     toneMapped: false,
   });
   const signs = Object.keys(supplies).map((type) => gateBatch(root, type, shadowMaterial));
-  const meters = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 0.073, 0.065),
-    new THREE.MeshBasicMaterial(), 80);
+  const meters = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 0.073, 0.065),
+    new THREE.MeshBasicMaterial(),
+    80,
+  );
   meters.frustumCulled = false;
   root.add(meters);
-  const meterTransform = new THREE.Matrix4(), ink = new THREE.Color('#253347'), white = new THREE.Color('#f5fffe');
+  const meterTransform = new THREE.Matrix4(),
+    ink = new THREE.Color('#253347'),
+    white = new THREE.Color('#f5fffe');
   const updateWall = makeWall(root, shadowMaterial);
   return {
-    update({ distance = 0, gates = [], wall }) {
-      deck.offset.y = (distance / 8) % 1;
+    update(s) {
+      const { gates, wall } = s;
+      terrain.update(s);
+      updateRoad(s);
       for (const updateSign of signs) updateSign(gates);
       let count = 0;
       for (const g of gates) {
         if (!g.active || g.hp >= g.maxHp || g.z < -45 || g.z > NEAR) continue;
         const width = supplies[g.type].tone === 'gold' ? 2.22 : 1.48;
-        const fill = width * g.hp / g.maxHp;
-        for (const [w, x, z, color] of [[width, g.x, g.z + 0.18, ink],
-          [fill, g.x - (width - fill) / 2, g.z + 0.22, white]]) {
+        const fill = (width * g.hp) / g.maxHp;
+        for (const [w, x, z, color] of [
+          [width, g.x, g.z + 0.18, ink],
+          [fill, g.x - (width - fill) / 2, g.z + 0.22, white],
+        ]) {
           meterTransform.makeScale(w, 1, 1).setPosition(x, 0.13, z);
           meters.setMatrixAt(count, meterTransform);
           meters.setColorAt(count++, color);
         }
       }
       meters.count = count;
-      if (count) { meters.instanceMatrix.needsUpdate = true; meters.instanceColor.needsUpdate = true; }
+      if (count) {
+        meters.instanceMatrix.needsUpdate = true;
+        meters.instanceColor.needsUpdate = true;
+      }
       updateWall(wall);
     },
     dispose() {

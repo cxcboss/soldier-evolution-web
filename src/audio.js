@@ -6,12 +6,22 @@ const cues = {
   impact: { duration: 0.31, gain: 0.28, interval: 0.12 },
   wallHit: { duration: 0.16, gain: 0.16, interval: 0.13 },
   cardHit: { duration: 0.1, gain: 0.11, interval: 0.13 },
-  supplyBreak: { duration: 0.25, gain: 0.21, interval: 0.10 },
+  supplyBreak: { duration: 0.25, gain: 0.21, interval: 0.1 },
   shieldHit: { duration: 0.16, gain: 0.14, interval: 0.14 },
   wallBreak: { duration: 0.43, gain: 0.35, interval: 0.4 },
   plus: { duration: 0.22, gain: 0.18, interval: 0.105 },
   merge: { duration: 0.41, gain: 0.23, interval: 0.18 },
   slam: { duration: 0.49, gain: 0.42, interval: 0.5 },
+  bruiserStrike: { duration: 0.31, gain: 0.28, interval: 0.22 },
+  diverStrike: { duration: 0.36, gain: 0.22, interval: 0.1 },
+  wardenCast: { duration: 0.68, gain: 0.26, interval: 0.5 },
+  drillStrike: { duration: 0.32, gain: 0.21, interval: 0.18 },
+  kestrelCast: { duration: 0.66, gain: 0.23, interval: 0.42 },
+  engineStrike: { duration: 0.44, gain: 0.3, interval: 0.24 },
+  bossBurst: { duration: 0.79, gain: 0.4, interval: 0.7 },
+  chainSnap: { duration: 0.29, gain: 0.28, interval: 0.23 },
+  discharge: { duration: 0.41, gain: 0.26, interval: 0.23 },
+  vaultLand: { duration: 0.25, gain: 0.21, interval: 0.4 },
   victory: { duration: 0.79, gain: 0.28, interval: 0.7 },
   loss: { duration: 0.63, gain: 0.25, interval: 0.57 },
   hit: { duration: 0.09, gain: 0.075, interval: 0.14 },
@@ -116,12 +126,53 @@ function buildSound(context, kind) {
       noise(0.035, 0.39, 520, 0.84);
       noise(0.092, 0.13, 1400, 0.44);
       break;
+    case 'bruiserStrike':
+      noise(0, 0.27, 670, 0.7);
+      tone(0, 0.27, 153, 61, 0.74);
+      break;
+    case 'diverStrike':
+      noise(0, 0.27, 2300, 0.67);
+      tone(0.01, 0.26, 480, 120, 0.42);
+      break;
+    case 'wardenCast':
+      tone(0, 0.44, 96, 53, 0.77, 0.5);
+      noise(0.05, 0.57, 820, 0.68);
+      break;
+    case 'drillStrike':
+      bell(0, 0.24, 1450, 0.59);
+      bell(0.05, 0.24, 860, 0.5);
+      break;
+    case 'kestrelCast':
+      noise(0, 0.56, 3300, 0.58);
+      tone(0.04, 0.52, 830, 1320, 0.35);
+      break;
+    case 'engineStrike':
+      tone(0, 0.36, 140, 45, 0.81, 0.45);
+      noise(0.015, 0.34, 1350, 0.85);
+      break;
+    case 'vaultLand':
+      tone(0, 0.2, 115, 49, 0.7);
+      noise(0.01, 0.19, 720, 0.61);
+      break;
+    case 'chainSnap':
+      noise(0, 0.048, 4300, 0.65);
+      bell(0.012, 0.19, 1280, 0.45);
+      bell(0.059, 0.18, 711, 0.28);
+      break;
+    case 'discharge':
+      tone(0, 0.29, 1620, 143, 0.66, 0.4);
+      noise(0.05, 0.29, 2900, 0.49);
+      break;
+    case 'bossBurst':
+      tone(0, 0.5, 182, 41, 1, 0.44);
+      noise(0, 0.12, 4600, 0.85);
+      noise(0.048, 0.54, 850, 0.84);
+      bell(0.23, 0.28, 784, 0.32);
+      bell(0.37, 0.39, 1047, 0.33);
+      break;
     case 'victory':
-      bell(0, 0.21, 523, 0.54);
-      bell(0.105, 0.22, 659, 0.61);
-      bell(0.205, 0.25, 784, 0.64);
-      bell(0.33, 0.42, 1047, 0.7);
-      bell(0.34, 0.4, 784, 0.24);
+      tone(0, 0.35, 144, 48, 0.84, 0.37);
+      noise(0.032, 0.31, 720, 0.7);
       break;
     case 'loss':
       bell(0, 0.21, 392, 0.57);

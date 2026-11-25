@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0a2036" />
     <title>小兵进化 · 网页试玩</title>
     <link rel="icon" href="data:," />
-    <link rel="stylesheet" href="./game.css?v=bridge2" />
+    <link rel="stylesheet" href="./game.css?v=beasts30b" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
@@ -72,10 +72,13 @@
       </defs>
     </svg>
     <main id="stage" class="stage" aria-label="小兵进化游戏区" data-phase="loading">
-      <canvas id="game" aria-label="战场。左右拖动，或用方向键和 A、D 移动队伍。"></canvas>
+      <canvas
+        id="game"
+        aria-label="战场。左右拖动换道，上下微调。也可以用方向键或 WASD 移动队伍。"
+      ></canvas>
       <header class="hud">
         <div class="readings" aria-label="队伍状态">
-          <span id="level">第 1 关</span><i></i>
+          <button id="level" aria-label="选择关卡" title="选择关卡">第 1 关</button><i></i>
           <span title="队员人数" aria-label="队员人数"
             ><svg class="blue"><use href="#i-soldier" /></svg><b id="count">1</b></span
           ><i></i
@@ -96,7 +99,10 @@
       <div id="buffs" class="buffs" hidden></div>
       <div id="bossbar" class="bossbar" hidden>
         <div></div>
-        <b>800</b>
+        <small id="bossName"></small><b>800</b>
+      </div>
+      <div id="armorMeter" class="armor-meter" role="img" aria-label="队长护甲" hidden>
+        <i></i><i></i><i></i>
       </div>
       <div id="tip" class="tip" hidden></div>
       <section id="start" class="start">
@@ -118,16 +124,18 @@
         >
           <h2 id="dialogTitle"></h2>
           <p id="detail"></p>
+          <div id="stageList" class="stage-list" aria-label="30 关试玩" hidden></div>
           <div id="options" class="options" hidden>
             <button data-art="hybrid">混合</button><button data-art="ai">AI 贴图</button
             ><button data-art="3d">纯 3D</button>
           </div>
           <button id="continue" class="primary">继续</button
           ><button id="secondary" class="secondary" hidden>重新开始</button>
+          <button id="selectStage" class="secondary" hidden>选择关卡</button>
         </section>
       </div>
       <div id="problem" class="problem" hidden></div>
     </main>
-    <script type="module" src="./game.js?v=bridge2"></script>
+    <script type="module" src="./game.js?v=beasts30b"></script>
   </body>
 </html>

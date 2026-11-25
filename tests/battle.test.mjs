@@ -248,20 +248,100 @@ test('the moving wall sweeps only the soldiers it overlaps and keeps travelling'
   assert.ok(body.z > start && !b.caught);
 });
 
-test('the boss falls once while the squad keeps fighting the last enemies', () => {
+test('the boss hits the road, stays down, then bursts exactly once without touching adjacent soldiers', () => {
   const events = [];
   const b = field((e) => events.push(e.kind));
   Object.assign(b.boss, { active: true, z: -12, hp: 12 });
   b.row = b.lastRow;
-  placeRunner(b, 2, -4.5);
+  const red = placeRunner(b, b.boss.x + 0.25, b.boss.z - 1.1);
+  const before = { ...red };
   b.damageBoss({ kind: 'rocket' }, 26);
-  for (let i = 0; i < 100; i++) b.advanceBoss(1 / 60);
-  assert.equal(b.phase, 'clear');
-  assert.ok(b.playing);
-  assert.equal(events.filter((e) => e === 'victory').length, 1);
+  const advance = (n) => {
+    for (let i = 0; i < n; i++) b.advanceBoss(1 / 60);
+  };
+  advance(56);
+  assert.equal(b.boss.removed, false);
+  assert.deepEqual(events, ['finisher', 'victory']);
+  advance(38);
+  assert.equal(b.boss.removed, false);
+  advance(4);
+  assert.equal(b.boss.removed, true);
+  assert.deepEqual(events, ['finisher', 'victory', 'bossBurst']);
+  assert.deepEqual(red, before);
+  assert.equal(b.score, 0);
   b.damageBoss({ kind: 'shot' }, 6);
-  assert.equal(events.filter((e) => e === 'finisher').length, 1);
+  advance(35);
+  assert.equal(b.phase, 'clear');
+  assert.equal(events.filter((e) => e === 'bossBurst').length, 1);
   b.runners.length = 0;
-  b.advanceBoss(1 / 60);
+  advance(1);
   assert.equal(b.phase, 'won');
+});
+
+test('a red attacker survives contact and marches across the fallen soldier and captain', () => {
+  const b = field(),
+    attacker = placeRunner(b, 0, -0.2);
+  b.allies = [{ x: 0, z: 0, slot: 0, phase: 0 }];
+  b.contact(attacker);
+  const body = b.falling[0];
+  assert.ok(body.prone && attacker.alive && attacker.spent);
+  for (let i = 0; i < 60; i++) {
+    b.worldAdvance = 3.65 / 60;
+    b.moveGrunt(attacker, 1 / 60, []);
+    b.updateFalling(1 / 60);
+  }
+  assert.ok(attacker.z > body.z + 1.1 && b.falling.includes(body));
+  const final = field(),
+    last = placeRunner(final, 0, -0.25);
+  final.armor = 1;
+  final.contact(last);
+  assert.equal(final.lossReason, 'infantry');
+  for (let i = 0; i < 70; i++) final.tick(1 / 60);
+  assert.ok(last.alive && last.z > final.captainZ + 1.05 && last.marched > 1);
+  assert.equal(final.resultReady, false);
+  for (let i = 0; i < 90; i++) final.tick(1 / 60);
+  assert.ok(final.overrun.crossed && final.resultReady);
+});
+
+test('both outer lanes keep marching straight at range and converge when the squad is near', () => {
+  for (const side of [-1, 1]) {
+    const b = field();
+    b.x = 4.45 * side;
+    b.worldAdvance = 3.65 / 60;
+    const enemy = placeRunner(b, -4.45 * side, -14),
+      start = enemy.x;
+    b.moveGrunt(enemy, 1 / 60, []);
+    assert.equal(enemy.x, start);
+    enemy.z = -6.6;
+    for (let i = 0; i < 93; i++) b.moveGrunt(enemy, 1 / 60, []);
+    assert.ok(enemy.marched > 6 && Math.abs(enemy.x - b.x) < 0.55);
+    assert.ok(enemy.spent && b.armor < 3);
+  }
+});
+
+test('retreat moves the formation and every muzzle together, clamps to a short strip and releases forward', () => {
+  const b = field();
+  b.recruit(0, true);
+  const start = b.allies[0].z;
+  for (let i = 0; i < 105; i++) b.tick(1 / 60, 0, 1);
+  assert.ok(b.captainZ > 1.35 && b.captainZ <= 1.38);
+  assert.ok(Math.abs(b.allies[0].z - start - b.captainZ) < 0.011);
+  b.shots = [];
+  b.rocketTimer = 0;
+  b.volleyTimer = 0;
+  b.buffs.drone = 1;
+  b.supportTimer = 0;
+  b.shoot(1 / 60);
+  assert.ok(
+    b.shots.some(
+      (p) => p.kind === 'rocket' && Math.abs(p.startZ - (b.captainZ - 0.6 * b.visualScale)) < 0.001,
+    ),
+  );
+  assert.ok(b.shots.filter((p) => p.kind !== 'rocket').every((p) => p.startZ > 0.7));
+  b.aim(2, 99);
+  assert.equal(b.targetZ, 1.38);
+  b.aim(-3);
+  assert.equal(b.targetZ, 1.38);
+  for (let i = 0; i < 110; i++) b.tick(1 / 60, 0, -1);
+  assert.ok(b.captainZ < 0.005 && Math.abs(b.allies[0].z - start) < 0.01);
 });

@@ -94,8 +94,28 @@ function stroke(points, radius, sides = 6) {
 }
 
 function finishes() {
+  const cloth = new THREE.MeshPhongMaterial({
+    vertexColors: true,
+    shininess: 18,
+    specular: 0x302827,
+  });
+  cloth.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 fabricPoint;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nfabricPoint=position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 fabricPoint;')
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 stitch=vec2(fabricPoint.x+.42*fabricPoint.z,fabricPoint.y)*175.;
+        vec2 weight=1.-smoothstep(vec2(.75),vec2(2.7),fwidth(stitch));
+        float thread=dot(sin(stitch*3.14159),weight)*.024;
+        diffuseColor.rgb*=1.+thread;`,
+      );
+  };
   return {
-    cloth: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 21, specular: 0x302827 }),
+    cloth,
     lacquer: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 58, specular: 0x6d7c86 }),
     metal: new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 78, specular: 0x9baaba }),
   };
@@ -129,7 +149,10 @@ class Parts {
     }
     geometry.setAttribute('color', new THREE.BufferAttribute(values, 3));
     if (this.limb !== undefined) {
-      geometry.setAttribute('limb', new THREE.Float32BufferAttribute(new Float32Array(length).fill(this.limb), 1));
+      geometry.setAttribute(
+        'limb',
+        new THREE.Float32BufferAttribute(new Float32Array(length).fill(this.limb), 1),
+      );
     }
     if (!this.byFinish.has(finish)) this.byFinish.set(finish, []);
     this.byFinish.get(finish).push(geometry);
@@ -177,7 +200,7 @@ export function createTroopGeometry(side, detail = 'near') {
   const parts = new Parts();
   const dome = red ? 0xf2353a : 0x149fe8;
   const lip = red ? 0xb0212b : 0x155cac;
-  const fabric = red ? 0xc8955d : 0xd5b177;
+  const fabric = red ? 0xa54039 : 0xc5995e;
   const yDome = far ? 6 : 10;
   const headSides = far ? 5 : 8;
   for (const sign of [-1, 1]) {
@@ -285,6 +308,52 @@ export function createTroopGeometry(side, detail = 'near') {
       red ? 0xf65d4e : 0x6dc7f5,
       { sides: 10 },
     );
+    // Geometry carries the insignia, pack and straps through side views and a fall.
+    // Their outlines are wider than the finer weave in the uniform texture.
+    parts.limb = 0;
+    if (red) {
+      for (const y of [0.66, 0.698])
+        parts.box(0xffdd91, [0, y, -0.203], [0.09, 0.019, 0.017], [-0.23, 0, 0]);
+      parts.add(beam([-0.093, 0.449, -0.096], [0.107, 0.291, -0.111], 0.017, 0.018, 5), 0x59382a);
+      parts.box(0xe3b76b, [0.027, 0.356, -0.127], [0.041, 0.031, 0.014], [0, 0, -0.57]);
+      for (const side of [-1, 1]) {
+        parts.box(
+          0x714233,
+          [side * 0.093, 0.302, -0.098],
+          [0.067, 0.065, 0.04],
+          [0, -side * 0.23, 0],
+        );
+        parts.box(0xc0965a, [side * 0.093, 0.318, -0.121], [0.055, 0.018, 0.012]);
+        parts.box(
+          0xd8a561,
+          [side * 0.11, 0.448, -0.031],
+          [0.054, 0.019, 0.097],
+          [0, 0, -side * 0.28],
+        );
+      }
+    } else {
+      parts.box(0x38515d, [0, 0.351, 0.116], [0.194, 0.177, 0.086]);
+      parts.box(0x4c727e, [0, 0.356, 0.163], [0.159, 0.118, 0.02]);
+      parts.add(beam([-0.109, 0.447, 0.13], [0.109, 0.447, 0.13], 0.039, 0.039, 8), 0xdab87b);
+      for (const side of [-1, 1]) {
+        parts.box(0x6b4934, [side * 0.053, 0.372, 0.179], [0.023, 0.171, 0.018]);
+        parts.box(0xe0b97d, [side * 0.053, 0.335, 0.189], [0.036, 0.025, 0.014]);
+      }
+      parts.add(
+        stroke(
+          [
+            [0, 0.65, 0.205],
+            [0, 0.739, 0.189],
+            [0, 0.808, 0.127],
+            [0, 0.845, 0.05],
+            [0, 0.852, -0.027],
+          ],
+          0.014,
+          6,
+        ),
+        0x91dafa,
+      );
+    }
     if (!red) {
       parts.limb = 2;
       parts.add(beam([0.163, 0.264, 0.032], [0.173, 0.525, -0.19], 0.026, 0.026, 5), colors.gun);
@@ -295,7 +364,7 @@ export function createTroopGeometry(side, detail = 'near') {
     // Keep the front of the existing red helmet and face readable from the overhead camera.
     parts.ell(lip, [0, 0.583, -0.12], [0.18, 0.019, 0.133], [-0.14, 0, 0], 'cloth', 8, 3);
     parts.ell(0xefaa70, [0, 0.514, -0.139], [0.042, 0.042, 0.061], zero, 'cloth', 5, 3);
-    parts.box(0xffb780, [0, 0.68, -0.196], [0.043,0.045,0.012], [-0.28,0,0]);
+    if (far) parts.box(0xffc783, [0, 0.68, -0.196], [0.09, 0.027, 0.013], [-0.28, 0, 0]);
     for (const sign of [-1, 1]) {
       parts.ell(
         0x422d2c,
@@ -319,10 +388,23 @@ export function fieldEquipment(role) {
   const p = new Parts();
   if (role === 'guard') {
     p.box(0x526476, [0.12, 0.32, 0.155], [0.25, 0.34, 0.065], [-0.12, 0, -0.045]);
-    p.box(0xb6c5bf, [0.12, 0.36, 0.194], [0.20, 0.038, 0.014]);
+    p.box(0xb6c5bf, [0.12, 0.36, 0.194], [0.2, 0.038, 0.014]);
   } else if (role === 'gunner') {
-    p.add(beam([0.14, 0.33, 0.07], [0.13, 0.37, 0.39], 0.040, 0.03, 6), 0x354251);
+    p.add(beam([0.14, 0.33, 0.07], [0.13, 0.37, 0.39], 0.04, 0.03, 6), 0x354251);
     p.add(beam([0.13, 0.37, 0.38], [0.13, 0.38, 0.47], 0.038, 0.038, 6), 0x7c8085);
+  } else if (role === 'standard') {
+    p.add(beam([-0.18, 0.19, -0.05], [-0.18, 1.09, -0.05], 0.025, 0.02, 6), 0x746047);
+    p.box(0xeab75e, [-0.18, 1.08, -0.04], [0.078, 0.06, 0.078]);
+    p.box(0xa62b39, [-0.01, 0.93, -0.05], [0.33, 0.22, 0.043], [-0.08, 0, -0.09]);
+    p.box(0xffdb82, [-0.035, 0.92, -0.02], [0.18, 0.043, 0.02]);
+  } else if (role === 'courier') {
+    p.box(0xd1b783, [0.18, 0.34, 0.1], [0.26, 0.22, 0.14], [0, 0, -0.16]);
+    p.box(0xfff1d3, [0.18, 0.34, 0.177], [0.17, 0.145, 0.018]);
+    p.box(0xb74645, [0.18, 0.34, 0.196], [0.035, 0.12, 0.01]);
+    p.box(0xb74645, [0.18, 0.34, 0.196], [0.12, 0.035, 0.01]);
+  } else if (role === 'vault') {
+    p.add(beam([0.22, 0.07, 0.46], [0.16, 1.19, -0.53], 0.027, 0.017, 8), 0xffcc75);
+    p.add(beam([0.2, 0.32, 0.24], [0.195, 0.47, 0.11], 0.033, 0.033, 8), 0x43525e);
   } else {
     p.box(0x65453a, [0, 0.38, 0.12], [0.23, 0.15, 0.082]);
     for (const x of [-0.068, 0, 0.068])
@@ -587,6 +669,17 @@ export function createCaptain() {
     colors.blue,
     { sides: 28, finish: 'lacquer' },
   );
+  face.shape(
+    [
+      [0.296, 0.281, 0.252],
+      [0.312, 0.289, 0.259],
+      [0.325, 0.292, 0.261],
+    ],
+    0xb8dae0,
+    { sides: 30, finish: 'metal' },
+  );
+  for (const side of [-1, 1])
+    face.ell(0xe1bc78, [side * 0.255, 0.325, 0.114], [0.013, 0.016, 0.014], zero, 'metal', 8, 5);
   face.attach(head, palette);
 
   const cannon = joint(torso, 0.295, 0.691, -0.03);

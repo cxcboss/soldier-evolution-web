@@ -4,15 +4,16 @@ import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
 // The source paintings include a few transparent edge pixels to keep minified art clean.
 // Each pivot sits between the boots. The captain's cannon makes his crop asymmetric.
 const designs = {
-  ally: { width: 0.475, height: 0.86, pivot: 0.5, pad: 0.008, capacity: 180, grid: [6, 8] },
+  ally: { width: 0.467, height: 0.86, pivot: 0.49, pad: 0.008, capacity: 180, grid: [6, 8] },
   captain: { width: 1.13, height: 1.73, pivot: 0.43, pad: 0.009, capacity: 1, grid: [13, 16] },
-  grunt: { width: 0.515, height: 0.86, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [6, 8] },
+  grunt: { width: 0.522, height: 0.86, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [6, 8] },
 };
 const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.smoothstep;
 
 const vertexShader = `
   attribute vec3 anchor;
+  attribute float fallAngle;
   attribute vec2 dimensions;
   attribute vec4 motion;
   attribute vec3 feet;
@@ -58,7 +59,8 @@ const vertexShader = `
     vec2 center = vec2(0.0,dimensions.y*0.42);
     point -= center;
     point = vec2(c*point.x-s*point.y,s*point.x+c*point.y)+center;
-    vec3 world = anchor + cameraRight*point.x + cameraLift*point.y;
+    vec3 bodyAxis = normalize(mix(cameraLift,vec3(0.,.035,1.),sin(fallAngle)));
+    vec3 world = anchor + cameraRight*point.x + bodyAxis*point.y;
     world.z += depthSwing;
     gl_Position = projectionMatrix*viewMatrix*vec4(world, 1.0);
   }
@@ -97,6 +99,7 @@ function makeBatch(scene, name, texture, right, lift) {
     ['dimensions', 2],
     ['motion', 4],
     ['feet', 3],
+    ['fallAngle', 1],
     ['treatment', 4],
   ]) {
     const attribute = new THREE.InstancedBufferAttribute(
@@ -157,8 +160,10 @@ function makeBatch(scene, name, texture, right, lift) {
       white = 0,
       gray = 0,
       lean = 0,
+      fallAngle = 0,
     ) {
       if (count >= spec.capacity || scaleX <= 0.001 || scaleY <= 0.001) return;
+      attributes.fallAngle.setX(count, fallAngle);
       attributes.anchor.setXYZ(count, x, y, z);
       attributes.dimensions.setXY(count, spec.width * scaleX, spec.height * scaleY);
       attributes.motion.setXYZW(count, step, run, angle, action);
@@ -184,7 +189,7 @@ export async function createSpriteArt(scene) {
   const loader = new THREE.TextureLoader();
   const names = Object.keys(designs);
   const loaded = await Promise.allSettled(
-    names.map((name) => loader.loadAsync(`./art/${name}.webp`)),
+    names.map((name) => loader.loadAsync(`./art/${name}-field.webp`)),
   );
   const failure = loaded.find((result) => result.status === 'rejected');
   if (failure) {
@@ -214,17 +219,18 @@ export async function createSpriteArt(scene) {
     // A small pitch retains the painted helmet and shoulder volume under the high camera.
     lift.set(0, 1, 0).lerp(viewUp, 0.42).normalize();
     const full = mode === 'ai';
-    const moving = s.phase === 'ready' ? 0.3 : s.playing ? 1 : 0;
+    const moving = s.phase === 'ready' ? 0.3 : s.playing || s.overrun ? 1 : 0;
     const step = time * 10.8;
     if (full) {
       for (const column of s.columns) {
         for (const e of column.units) {
-          if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, marchAngle(e), moving);
+          if (e.alive)
+            batches.grunt.add(e.x, e.lift || 0, e.z, e.size, e.size, marchAngle(e), moving);
         }
       }
     }
     for (const e of s.runners) {
-      if (e.alive) batches.grunt.add(e.x, 0, e.z, e.size, e.size, marchAngle(e), moving);
+      if (e.alive) batches.grunt.add(e.x, e.lift || 0, e.z, e.size, e.size, marchAngle(e), moving);
     }
     for (const a of s.allies) {
       const p = clamp(a.age / 0.32, 0, 1),
@@ -248,8 +254,30 @@ export async function createSpriteArt(scene) {
       const size = 0.65 + 0.35 * f.progress;
       batches.ally.add(f.x, f.y, f.z, size, size, step + f.phase, 0.55, 0, 0, 0.42, 0.24);
     }
-    if (full) {
+    {
       for (const e of s.falling) {
+        if (!full && !(e.side === 'blue' && e.prone)) continue;
+        if (e.prone) {
+          const fallen = smooth(e.t, 0, 0.42);
+          const size = e.size * (s.overrun ? 1 : 1 - smooth(e.t, 1.78, 2.1));
+          batches.ally.add(
+            e.x,
+            0.09 * fallen,
+            e.z,
+            size,
+            size,
+            0,
+            0,
+            0.1 * fallen * e.dir,
+            0,
+            0,
+            0,
+            0.3 * fallen,
+            0,
+            1.5 * fallen,
+          );
+          continue;
+        }
         const p = clamp(e.t / 1.02, 0, 1),
           size = e.size * (1 - smooth(p, 0.78, 1));
         const tilt = e.roll * e.t + 0.16 * Math.sin(e.spin * e.t);
@@ -269,28 +297,34 @@ export async function createSpriteArt(scene) {
           0.72 * smooth(p, 0.05, 0.31),
         );
       }
-      if (s.phase !== 'lost' || s.endTime < 0.25) {
+      if (full && (s.phase !== 'lost' || s.overrun || s.endTime < 0.25)) {
         const size = s.visualScale,
-          fade = s.phase === 'lost' ? clamp(s.endTime / 0.25, 0, 1) : 0;
+          down = s.overrun ? smooth(s.endTime, 0, 0.5) : 0,
+          fade = s.phase === 'lost' && !s.overrun ? clamp(s.endTime / 0.25, 0, 1) : 0;
         batches.captain.add(
           s.x,
-          0,
+          s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0.1 * down,
           s.captainZ,
           size,
           size * (1 - 0.55 * fade),
           step * 0.83,
-          moving,
-          -0.38 * fade,
+          s.overrun ? 0 : moving,
+          -0.38 * fade - 0.12 * down,
           s.recoil,
           0.66 * s.mergeGlow,
           0.14 * s.mergeGlow + 0.48 * s.hurt + 0.32 * fade,
           0,
           clamp(s.velocity * 0.007, -0.095, 0.095),
+          1.5 * down,
         );
       }
-
     }
     for (const batch of groups) batch.flush();
   }
-  return { draw, clear, gruntTexture: loaded[names.indexOf('grunt')].value };
+  return {
+    draw,
+    clear,
+    gruntTexture: loaded[names.indexOf('grunt')].value,
+    allyTexture: loaded[names.indexOf('ally')].value,
+  };
 }
