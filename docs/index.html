@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#0a2036" />
+    <title>小兵进化 · 网页试玩</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./game.css" />
+  </head>
+  <body>
+    <svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
+      <defs>
+        <symbol id="i-soldier" viewBox="0 0 24 24">
+          <path
+            d="M3 14c0-5.8 3-9.5 8.9-9.5s9 3.7 9 9.5l-1.8 1H5zM6.8 16.5h10.5c-.5 3.2-2.2 4.5-5.3 4.5s-4.6-1.3-5.2-4.5Z"
+            fill="currentColor"
+          />
+        </symbol>
+        <symbol id="i-shell" viewBox="0 0 24 24">
+          <path
+            d="M12 2c3.2 2.3 4.5 5 4.5 8.9V17h-9v-6.1C7.5 7 8.8 4.3 12 2Z"
+            fill="currentColor"
+          />
+          <path d="M7 20h10" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+        </symbol>
+        <symbol id="i-sound" viewBox="0 0 24 24">
+          <path
+            d="M4 9h4l5-4v14l-5-4H4zM16 9q3 3 0 6m2-9q6 6 0 12"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.9"
+          />
+        </symbol>
+        <symbol id="i-mute" viewBox="0 0 24 24">
+          <path
+            d="M4 9h4l5-4v14l-5-4H4zM16 9l5 6m0-6-5 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="1.9"
+          />
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+          <path
+            d="M8 5v14m8-14v14"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3.7"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-art" viewBox="0 0 24 24">
+          <path
+            d="m12 3 9 5-9 5-9-5 9-5Zm-8 9.5 8 4.5 8-4.5M4 17l8 4 8-4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24">
+          <path
+            d="M7 4.8a1.5 1.5 0 0 1 2.2-1.3l12 7.2a1.5 1.5 0 0 1 0 2.6l-12 7.2A1.5 1.5 0 0 1 7 19.2Z"
+            fill="currentColor"
+          />
+        </symbol>
+      </defs>
+    </svg>
+    <main id="stage" class="stage" aria-label="小兵进化游戏区" data-phase="loading">
+      <canvas id="game" aria-label="战场。左右拖动，或用方向键和 A、D 移动队伍。"></canvas>
+      <header class="hud">
+        <div class="readings" aria-label="队伍状态">
+          <span title="队员人数" aria-label="队员人数"
+            ><svg class="blue"><use href="#i-soldier" /></svg><b id="count">8</b></span
+          ><i></i
+          ><span title="单发炮击伤害" aria-label="单发炮击伤害"
+            ><svg class="gold"><use href="#i-shell" /></svg><b id="power">26</b></span
+          >
+        </div>
+        <div class="controls">
+          <button id="sound" aria-label="关闭声音" title="声音">
+            <svg><use id="soundIcon" href="#i-sound" /></svg></button
+          ><button id="styles" aria-label="切换角色画面" title="画面对比">
+            <svg><use href="#i-art" /></svg></button
+          ><button id="pause" aria-label="暂停" title="暂停 (P)" hidden>
+            <svg><use href="#i-pause" /></svg>
+          </button>
+        </div>
+      </header>
+      <div id="bossbar" class="bossbar" hidden>
+        <div></div>
+        <b>800</b>
+      </div>
+      <div id="tip" class="tip" hidden></div>
+      <section id="start" class="start">
+        <div>
+          <h1>小兵进化</h1>
+          <p id="instruction">左右拖动 · 自动开火</p>
+        </div>
+        <button id="startButton" class="primary" disabled>
+          <svg><use href="#i-play" /></svg><span>准备中</span>
+        </button>
+      </section>
+      <div id="veil" class="veil" hidden>
+        <section
+          id="dialog"
+          class="dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dialogTitle"
+        >
+          <h2 id="dialogTitle"></h2>
+          <p id="detail"></p>
+          <div id="options" class="options" hidden>
+            <button data-art="hybrid">混合</button><button data-art="ai">AI 贴图</button
+            ><button data-art="3d">纯 3D</button>
+          </div>
+          <button id="continue" class="primary">继续</button
+          ><button id="secondary" class="secondary" hidden>重新开始</button>
+        </section>
+      </div>
+      <div id="problem" class="problem" hidden></div>
+    </main>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
