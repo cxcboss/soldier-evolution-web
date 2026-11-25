@@ -6,6 +6,7 @@ import { createCourseArt } from './course-art.js';
 import { createBossFX } from './boss-fx.js';
 import { createEffects } from './effects.js';
 import { createSpriteArt } from './sprite-art.js';
+import { createInfantryModel } from './infantry-paint.js';
 import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
 
 const pose = new THREE.Object3D();
@@ -118,15 +119,21 @@ function troops(scene, side, detail, capacity) {
       );
   };
   const mesh = new THREE.InstancedMesh(geo, mat, capacity);
-  let face;
+  let face, uniform;
   mesh.count = 0;
   mesh.frustumCulled = false;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(mesh);
   let count = 0;
   return {
-    paint(texture) {
+    paint(texture, reverse) {
       clothing.value = texture;
+      if (detail === 'near') {
+        uniform = createInfantryModel(side, texture, reverse, motion, capacity);
+        uniform.instanceMatrix = mesh.instanceMatrix;
+        scene.add(uniform);
+        return;
+      }
       if (side !== 'red') return;
       const geo = paintedFace();
       geo.setAttribute('stepPose', motion);
@@ -169,7 +176,11 @@ function troops(scene, side, detail, capacity) {
     },
     end() {
       mesh.count = count;
-      mesh.visible = count > 0;
+      mesh.visible = count > 0 && !uniform;
+      if (uniform) {
+        uniform.count = count;
+        uniform.visible = count > 0;
+      }
       if (face) {
         face.count = count;
         face.visible = mesh.visible;
@@ -312,8 +323,9 @@ export function makeView(canvas, stage) {
   const spritesReady = createSpriteArt(scene)
     .then((result) => {
       sprites = result;
-      blue.paint(result.allyTexture);
-      close.paint(result.gruntTexture);
+      captain.paint(result.captainTexture, result.gruntTexture);
+      blue.paint(result.allyTexture, result.gruntTexture);
+      close.paint(result.gruntTexture, result.allyTexture);
       far.paint(result.gruntTexture);
       return true;
     })

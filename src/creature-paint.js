@@ -161,6 +161,24 @@ export function createPaintedBoss(kind, texture) {
 // comes from both the silhouette distance and the anatomical volumes, including horns,
 // claws and wing membranes. The two caps share edge vertices through a stitched rim.
 const shapes = {
+  captain: [
+    [0.43, 0.77, 0.31, 0.24, 0.99],
+    [0.44, 0.48, 0.34, 0.2, 0.83],
+    [0.16, 0.49, 0.16, 0.19, 0.65],
+    [0.8, 0.49, 0.18, 0.22, 0.71],
+    [0.84, 0.76, 0.13, 0.34, 0.92],
+    [0.43, 0.17, 0.18, 0.23, 0.74],
+    [0.65, 0.2, 0.14, 0.22, 0.69],
+  ],
+  infantry: [
+    [0.5, 0.76, 0.38, 0.24, 0.98],
+    [0.5, 0.47, 0.28, 0.22, 0.85],
+    [0.19, 0.47, 0.15, 0.2, 0.6],
+    [0.82, 0.46, 0.14, 0.2, 0.62],
+    [0.37, 0.2, 0.19, 0.23, 0.69],
+    [0.66, 0.2, 0.17, 0.22, 0.65],
+    [0.46, 0.09, 0.17, 0.1, 0.76],
+  ],
   diver: [
     [0.5, 0.64, 0.29, 0.27, 1.0],
     [0.2, 0.29, 0.17, 0.2, 0.82],
@@ -192,9 +210,11 @@ const shapes = {
     [0.69, 0.82, 0.14, 0.18, 0.65],
   ],
 };
-function volumeGeometry(kind, map, width, height) {
-  const nx = 80,
-    ny = Math.max(54, Math.round((nx * map.image.height) / map.image.width));
+export function volumeGeometry(kind, map, width, height) {
+  const infantry = kind === 'infantry' || kind === 'captain';
+  const nx = kind === 'captain' ? 44 : infantry ? 22 : 80;
+  const minRows = infantry ? 30 : 54;
+  const ny = Math.max(minRows, Math.round((nx * map.image.height) / map.image.width));
   const canvas = document.createElement('canvas');
   canvas.width = nx + 1;
   canvas.height = ny + 1;
@@ -229,7 +249,7 @@ function volumeGeometry(kind, map, width, height) {
     faces = [],
     surface = [],
     cells = new Uint8Array(nx * ny),
-    pitch = 0.64,
+    pitch = infantry ? 0.43 : 0.64,
     c = Math.cos(pitch),
     s = Math.sin(pitch);
   for (const front of [true, false])
@@ -245,18 +265,24 @@ function volumeGeometry(kind, map, width, height) {
             depth * Math.exp(-1.6 * (((u - cx) / rx) ** 2 + ((v - cy) / ry) ** 2)),
           );
         }
-        const fromEdge = Math.pow(Math.min(1, distance[k] / (nx * 0.11)), 0.6);
+        const edgeDistance = Math.min(1, distance[k] / (nx * 0.11));
+        const fromEdge = infantry
+          ? THREE.MathUtils.smoothstep(edgeDistance, 0, 1) *
+            THREE.MathUtils.smoothstep(data[k * 4 + 3], 65, 215)
+          : Math.pow(edgeDistance, 0.6);
         const luma = (0.28 * data[k * 4] + 0.55 * data[k * 4 + 1] + 0.17 * data[k * 4 + 2]) / 255;
         const thickness =
           (0.023 + fromEdge * ((kind === 'kestrel' ? 0.085 : 0.2) + muscle * 0.86)) *
           Math.min(1.26, width / 3);
-        const depth = front ? thickness * (0.87 + luma * 0.13) : -0.99 * thickness;
+        const depth = front
+          ? thickness * (0.87 + luma * 0.13)
+          : -(infantry ? 0.67 : 0.99) * thickness;
         // The boot plane is y=0. Body sections further up the portrait project back over the footprint.
         const vertical = v * height;
         positions.push(
           (u - 0.5) * width,
           vertical * c + depth * s + 0.025,
-          0.46 - vertical * s + depth * c,
+          (infantry ? 0.09 : 0.46) - vertical * s + depth * c,
         );
         uvs.push(u, v);
         surface.push(front ? 1 : 0);

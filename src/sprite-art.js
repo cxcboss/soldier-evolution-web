@@ -324,6 +324,7 @@ export async function createSpriteArt(scene) {
   return {
     draw,
     clear,
+    captainTexture: loaded[names.indexOf('captain')].value,
     gruntTexture: loaded[names.indexOf('grunt')].value,
     allyTexture: loaded[names.indexOf('ally')].value,
   };

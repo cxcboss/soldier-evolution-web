@@ -1,3 +1,4 @@
+import { createFieldCaptain } from './infantry-paint.js';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -717,7 +718,14 @@ export function createCaptain() {
   weapon.ell(0x84c6e7, [0.123, 0.065, 0.02], [0.012, 0.022, 0.036], zero, 'lacquer');
   weapon.attach(cannon, palette);
   const muzzle = joint(cannon, 0, 0, -0.57);
+  let uniform;
+  function paint(portrait, reverse) {
+    uniform = createFieldCaptain(portrait, reverse);
+    body.visible = false;
+    root.add(uniform.mesh);
+  }
   function animate({ time = 0, run = 0, recoil = 0, merge = 0, lean = 0 } = {}) {
+    if (uniform) uniform.pose(time, run, recoil, lean, merge);
     const beat = time * 10.9;
     leftLeg.rotation.x = Math.sin(beat) * 0.53 * run;
     rightLeg.rotation.x = -Math.sin(beat) * 0.53 * run;
@@ -735,5 +743,5 @@ export function createCaptain() {
     palette.lacquer.emissive.setRGB(merge * 0.37, merge * 0.31, merge * 0.11);
     palette.metal.emissive.setRGB(merge * 0.29, merge * 0.22, merge * 0.07);
   }
-  return { root, animate, muzzle };
+  return { root, animate, muzzle, paint };
 }
