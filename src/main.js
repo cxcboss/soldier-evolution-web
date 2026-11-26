@@ -15,7 +15,7 @@ const dlg = $('veil'),
   tip = $('tip');
 const artNames = { hybrid: '混合', ai: 'AI 贴图', '3d': '纯 3D' };
 const artDescriptions = {
-  hybrid: '队长、首领和兵阵使用 3D，随队小兵使用原画。',
+  hybrid: '队长和 Boss 使用 3D，红蓝小兵使用动态原画。',
   ai: '使用原画角色和动态贴图。',
   '3d': '所有角色都使用 3D 模型，可看清跑动、炮身后坐和双拳砸地。',
 };
@@ -171,7 +171,7 @@ function showPanel(which) {
     if (win) {
       $('dialogTitle').textContent =
         battle.stage === lastStage ? '全部通关' : `第 ${battle.stage} 关通过`;
-      $('detail').textContent = `击败 Boss，击退 ${battle.score} 名红兵。`;
+      $('detail').textContent = `小队已穿过战场，共击倒 ${battle.score} 名红兵。`;
     } else {
       const losses = {
         signature: [

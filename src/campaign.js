@@ -306,15 +306,22 @@ export const campaign = routes.map(([name, theme, boss, vault, features], i) => 
   boss,
   vault,
   features,
-  finale: 202 + i * 3 + [0, 8, 3, 12, 5][i % 5],
+  finale: 226 + i * 4 + [0, 8, 3, 12, 5][i % 5],
   restEvery: [44, 40, 48, 42, 46][i % 5],
-  restLength: 5.1 + [0.4, 1.2, 0.15, 0.7, 1.1][i % 5],
+  restLength: 5.75 + [0.4, 1.2, 0.15, 0.7, 1.1][i % 5],
 }));
 export const lastStage = campaign.length;
 export function terrainPiece(spec, stage) {
-  const hp = Math.round(
-    (spec.kind === 'cache' ? 60 : spec.kind === 'bridge' ? 42 : 29) + (stage - 1) * 1.15,
-  );
+  const coverHP = { glass: 21, crates: 49, shutter: 78 };
+  const baseHP =
+    spec.kind === 'cover'
+      ? coverHP[spec.variant]
+      : spec.kind === 'cache'
+        ? 60
+        : spec.kind === 'bridge'
+          ? 42
+          : 29;
+  const hp = Math.round(baseHP + (stage - 1) * (spec.kind === 'cover' ? 0.75 : 1.15));
   return {
     ...spec,
     x: laneCenter(spec.lane),
@@ -324,8 +331,8 @@ export function terrainPiece(spec, stage) {
     state: 'ready',
     age: 0,
     flash: 0,
-    half: spec.kind === 'cache' ? 1.67 : 0.74,
-    depth: spec.kind === 'cache' ? 0.38 : 0.34,
+    half: spec.kind === 'cover' ? 1.94 : spec.kind === 'cache' ? 1.67 : 0.74,
+    depth: spec.kind === 'cover' ? 0.46 : spec.kind === 'cache' ? 0.38 : 0.34,
   };
 }
 export function isOpening(p) {

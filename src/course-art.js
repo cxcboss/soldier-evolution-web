@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { block, part, combine } from './scenery-mesh.js';
 import { createTerrainArt } from './terrain-art.js';
 import { landscapes } from './campaign.js';
-import { supplies } from './supplies.js';
+import { cardWidth, supplies } from './supplies.js';
 
 const ROAD_WIDTH = 13.2;
 const NEAR = 14;
@@ -151,7 +151,7 @@ function makeRoad(group, terrain) {
 function makeSignTexture(type) {
   const merge = supplies[type].tone === 'gold';
   const canvas = document.createElement('canvas');
-  canvas.width = merge ? 512 : 384;
+  canvas.width = 704;
   canvas.height = 208;
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
@@ -164,7 +164,7 @@ function makeSignTexture(type) {
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, w, h);
   const label = supplies[type].label;
-  const fontSize = supplies[type].count ? 147 : 119;
+  const fontSize = supplies[type].count ? 151 : 122;
   ctx.font = `900 ${fontSize}px "Arial Rounded MT Bold","Arial Black","PingFang SC","Microsoft YaHei",sans-serif`;
   ctx.textAlign = 'center';
   ctx.lineJoin = 'round';
@@ -172,7 +172,7 @@ function makeSignTexture(type) {
   const metrics = ctx.measureText(label);
   const baseline = h / 2 + (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
   ctx.translate(w / 2, baseline + 1);
-  ctx.scale(Math.min(1.25, (w * (merge ? 0.8 : 0.63)) / metrics.width), 1);
+  ctx.scale(Math.min(1.05, (w * 0.85) / metrics.width), 1);
   ctx.lineWidth = merge ? 15 : 18;
   ctx.strokeStyle = '#17212b';
   ctx.strokeText(label, 0, 0);
@@ -223,8 +223,8 @@ function castShadow(width, height) {
 
 function gateBatch(group, type, shadowMaterial) {
   const merge = supplies[type].tone === 'gold';
-  const w = merge ? 2.65 : 1.82;
-  const h = merge ? 1.03 : 0.91;
+  const w = cardWidth;
+  const h = 1.09;
   const depth = 0.17;
   const shell = merge ? '#ffd526' : '#2095ef';
   const sideTrim = merge ? '#e8aa10' : '#1e76ce';
@@ -274,7 +274,7 @@ function gateBatch(group, type, shadowMaterial) {
     for (const mesh of meshes.slice(1)) mesh.instanceMatrix = meshes[0].instanceMatrix;
   }
   allocate(capacity);
-  return (gates) => {
+  return (gates, retract) => {
     // Size against the visible records, so long courses can stream an arbitrary number of gates.
     let visible = 0;
     for (const gate of gates)
@@ -292,10 +292,10 @@ function gateBatch(group, type, shadowMaterial) {
         continue;
       const t = gate.active ? 0 : gate.pop / 0.28;
       const size = (1 + 0.24 * Math.sin(Math.PI * t) + gate.flash * 0.065) * (1 - t * t);
-      transform.makeScale(size, size * (1 + 0.18 * Math.sin(t * Math.PI)), size);
+      transform.makeScale(size, size * (1 - retract) * (1 + 0.18 * Math.sin(t * Math.PI)), size);
       transform.setPosition(
         gate.x + 0.22 * (gate.x < 0 ? 1 : -1) * t,
-        Math.sin(t * Math.PI) * 0.38,
+        Math.sin(t * Math.PI) * 0.38 - retract * 0.13,
         gate.z,
       );
       meshes[0].setMatrixAt(index++, transform);
@@ -523,17 +523,38 @@ export function createCourseArt(scene) {
   const meterTransform = new THREE.Matrix4(),
     ink = new THREE.Color('#253347'),
     white = new THREE.Color('#f5fffe');
+  const lockGeometry = combine([
+    part(block(0.43, 0.32, 0.1, 0.04), '#3e505d', 0, 0, 0.01),
+    part(new THREE.TorusGeometry(0.132, 0.045, 7, 18, Math.PI), '#ffe3a2', 0, 0.13, 0.04),
+    part(block(0.12, 0.1, 0.022, 0.017), '#f3be63', 0, 0, 0.072),
+  ]);
+  const locks = new THREE.InstancedMesh(
+    lockGeometry,
+    new THREE.MeshPhongMaterial({ vertexColors: true }),
+    40,
+  );
+  locks.frustumCulled = false;
+  locks.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  root.add(locks);
   const updateWall = makeWall(root, shadowMaterial);
   return {
     update(s) {
       const { gates, wall } = s;
       terrain.update(s);
       updateRoad(s);
-      for (const updateSign of signs) updateSign(gates);
-      let count = 0;
+      const retract = s.parade ? THREE.MathUtils.smoothstep(s.endTime, 0, 0.4) : 0;
+      for (const updateSign of signs) updateSign(retract === 1 ? [] : gates, retract);
+      let count = 0,
+        lockCount = 0;
       for (const g of gates) {
-        if (!g.active || g.hp >= g.maxHp || g.z < -45 || g.z > NEAR) continue;
-        const width = supplies[g.type].tone === 'gold' ? 2.22 : 1.48;
+        if (!s.parade && g.active && g.cover?.hp > 0 && g.z > FAR && g.z < NEAR) {
+          meterTransform
+            .makeRotationX(GATE_TILT)
+            .setPosition(g.x + cardWidth / 2 - 0.35, 0.72, g.z + 0.18);
+          locks.setMatrixAt(lockCount++, meterTransform);
+        }
+        if (s.parade || !g.active || g.hp >= g.maxHp || g.z < -45 || g.z > NEAR) continue;
+        const width = cardWidth - 0.38;
         const fill = (width * g.hp) / g.maxHp;
         for (const [w, x, z, color] of [
           [width, g.x, g.z + 0.18, ink],
@@ -544,6 +565,8 @@ export function createCourseArt(scene) {
           meters.setColorAt(count++, color);
         }
       }
+      locks.count = lockCount;
+      locks.instanceMatrix.needsUpdate = lockCount > 0;
       meters.count = count;
       if (count) {
         meters.instanceMatrix.needsUpdate = true;

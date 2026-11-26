@@ -151,14 +151,14 @@ test('red ranks enter from above the current viewport and march past the moving 
         else assert.ok(e.z - seen.get(e.id) > b.worldAdvance, 'advances even relative to the deck');
         seen.set(e.id, e.z);
       }
-      if (frame === 59) assert.ok(Math.max(...units().map((e) => e.z)) < entry + 5);
+      if (frame === 59) {
+        const lead = Math.max(...units().map((e) => e.z)) - entry;
+        assert.ok(lead > 5 && lead < 6.7, 'faster approach with a visible entry');
+      }
     }
     const band = units().filter((e) => e.z >= entry + 4 && e.z < entry + 25).length;
-    const previousDensity = (21 * 11) / 0.49;
-    assert.ok(
-      band > previousDensity * 0.83 && band < previousDensity * 0.93,
-      'slightly thinner full formations',
-    );
+    assert.ok(band > 310 && band < 415, 'dense packs leave space between changes of lane');
+    assert.ok(units().some((e) => e.laneX < -3) && units().some((e) => e.laneX > 3));
   }
 });
 
@@ -222,7 +222,12 @@ test('the finale enters offscreen alongside the last wave, and each level starts
       b.advanceBoss(1 / 60);
     }
     assert.ok(b.row > before && b.boss.z > start + 2.3);
-    assert.ok(b.boss.x >= -1.13 && b.boss.x <= -0.1);
+    assert.ok(Math.abs(b.boss.x) < 5.4);
+    assert.ok(
+      b.gates.every(
+        (g) => !g.active || Math.abs(g.z - b.boss.z) > 0.8 || Math.abs(g.x - b.boss.x) >= 2.9,
+      ),
+    );
   }
 });
 

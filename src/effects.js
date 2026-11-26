@@ -613,7 +613,9 @@ export function createEffects(scene) {
     }
   }
 
-  function debris(x, y, z, amount, scale, radial = false) {
+  const glassChips = ['#65d8cd', '#dafff3', '#4cb9b2'].map((c) => new THREE.Color(c));
+  const woodChips = ['#e4b879', '#925c3b', '#c28b57'].map((c) => new THREE.Color(c));
+  function debris(x, y, z, amount, scale, radial = false, colors = chipColors) {
     for (let i = 0; i < amount && chips.length < shards.instanceMatrix.count; i++) {
       const p = chipPool.pop() || {};
       p.x = x + between(-1.75, 1.75) * scale;
@@ -637,7 +639,7 @@ export function createEffects(scene) {
       p.spin = between(2, 8);
       p.age = 0;
       p.life = between(0.52, 1.04);
-      p.color = chipColors[i % chipColors.length];
+      p.color = colors[i % colors.length];
       chips.push(p);
     }
   }
@@ -933,6 +935,22 @@ export function createEffects(scene) {
         debris(x, 0.42, z, 17, 0.91, true);
         scatterSparks(x, y + 0.38, z, 1.57, 24);
         scatterSmoke(x, 0.35, z, 1.5, 10, palette.smoke);
+        return;
+      case 'glassBreak':
+        debris(x, y, z, 18, 0.92, false, glassChips);
+        add(sprites.wave, x, 0.06, z, 0.5, 4.85, 0.31, { flat: true, color: palette.aqua });
+        for (const dx of [-1.09, 0, 1.09])
+          add(sprites.glint, x + dx, y + 0.25, z, 0.19, 0.74, 0.2, { color: palette.pearl });
+        return;
+      case 'crateBreak':
+        debris(x, y, z, 16, 1.04, false, woodChips);
+        scatterSmoke(x, 0.32, z, 0.7, 5, palette.smoke);
+        return;
+      case 'latchHit':
+        scatterSparks(x, y, z, 1.06, 8);
+        return;
+      case 'rally':
+        add(sprites.wave, x, 0.08, z, 0.46, 3.05, 0.49, { flat: true, color: palette.aqua });
         return;
       case 'chainSnap':
         for (const side of [-1, 1]) scatterSparks(x + side * 1.86, 1.04, z, 1.15, 9);

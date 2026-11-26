@@ -219,14 +219,12 @@ export async function createSpriteArt(scene) {
     // A small pitch retains the painted helmet and shoulder volume under the high camera.
     lift.set(0, 1, 0).lerp(viewUp, 0.42).normalize();
     const full = mode === 'ai';
-    const moving = s.phase === 'ready' ? 0.3 : s.playing || s.overrun ? 1 : 0;
-    const step = time * 10.8;
-    if (full) {
-      for (const column of s.columns) {
-        for (const e of column.units) {
-          if (e.alive)
-            batches.grunt.add(e.x, e.lift || 0, e.z, e.size, e.size, marchAngle(e), moving);
-        }
+    const moving = s.phase === 'ready' ? 0.3 : s.playing || s.overrun || s.parade ? 1 : 0;
+    const step = time * 10.8 + (s.parade ? s.endTime * 5.6 : 0);
+    for (const column of s.columns) {
+      for (const e of column.units) {
+        if (e.alive)
+          batches.grunt.add(e.x, e.lift || 0, e.z, e.size, e.size, marchAngle(e), moving);
       }
     }
     for (const e of s.runners) {
@@ -256,7 +254,6 @@ export async function createSpriteArt(scene) {
     }
     {
       for (const e of s.falling) {
-        if (!full && !(e.side === 'blue' && e.prone)) continue;
         if (e.prone) {
           const fallen = smooth(e.t, 0, 0.42);
           const size = e.size * (s.overrun ? 1 : 1 - smooth(e.t, 1.78, 2.1));

@@ -78,6 +78,8 @@ test('a finale boss jumps from one visible lip to the other with no slam attack'
       b.worldAdvance = 2.3 / 60;
       b.distance += b.worldAdvance;
       updateTerrain(b, 1 / 60);
+      b.wall.z += b.worldAdvance;
+      b.crossGates();
       const was = b.boss.vault;
       b.advanceBoss(1 / 60);
       if (!was && b.boss.vault) takeoff = [b.boss.z, b.boss.z - p.z];
@@ -150,4 +152,152 @@ test('every boss telegraphs its own locked attack, resolves once per mark, and c
     b.damageBoss({ kind: 'rocket' }, 9999);
     assert.equal(b.boss.skill, null);
   }
+});
+
+test('lane-wide protected supplies block shots and touch until the obstacle is destroyed', async () => {
+  const { cardWidth } = await import('../src/supplies.js');
+  const { laneWidth } = await import('../src/campaign.js');
+  const { rifleRound } = await import('../src/projectiles.js');
+  assert.ok(cardWidth > 0.88 * laneWidth && cardWidth < laneWidth);
+  for (const variant of ['glass', 'crates', 'shutter']) {
+    const b = new Battle();
+    b.start();
+    const card = b.gates.find((g) => g.cover?.variant === variant);
+    const cover = card.cover;
+    const easy = b.gates.find((g) => !g.cover && g.x !== card.x && Math.abs(g.at - card.at) < 2);
+    assert.ok(easy);
+    b.gates = [card, easy];
+    b.features = [cover];
+    b.wall.hp = 0;
+    b.distance = cover.at - 7;
+    updateTerrain(b, 1 / 60);
+    b.crossGates();
+    const hit = (x, damage) => {
+      b.launch(x, 0.58, 0, rifleRound, 1, damage);
+      for (let i = 0; i < 46; i++) b.advanceShots(1 / 60);
+    };
+    const hp = card.hp;
+    hit(card.x + 1.35, 4);
+    assert.equal(card.hp, hp);
+    assert.equal(cover.hp, cover.maxHp - 4);
+    b.openCard(card);
+    assert.equal(card.active, true);
+    b.x = card.x;
+    b.captainZ = card.z;
+    b.crossGates();
+    assert.equal(card.active, true);
+    b.captainZ = 0;
+    hit(card.x, 4);
+    assert.equal(cover.hp, cover.maxHp - 4 - (variant === 'shutter' ? 9 : 4));
+    hit(card.x, 500);
+    assert.equal(cover.state, 'open');
+    assert.ok(card.active && card.hp === hp);
+    hit(card.x + cardWidth / 2 - 0.025, 500);
+    assert.equal(card.active, false);
+    assert.ok(easy.active);
+  }
+});
+
+test('both range pickups affect new rounds temporarily and expire without cutting an airborne shot', async () => {
+  const { rifleRound, shotRange, extendedRange } = await import('../src/projectiles.js');
+  for (const type of ['range', 'longshot']) {
+    const b = new Battle();
+    b.start();
+    b.gates = [];
+    b.features = [];
+    b.wall.hp = 0;
+    b.launch(0, 0.58, 0, rifleRound, 1, 3);
+    assert.equal(b.shots[0].range, 22);
+    b.openCard({ x: 0, z: -2, active: true, type });
+    b.updateDeliveries(0.61);
+    b.launch(0, 0.58, 0, rifleRound, 1, 3);
+    const extended = b.shots.at(-1);
+    assert.equal(extended.range, extendedRange);
+    assert.equal(extended.pierce, type === 'longshot' ? 1 : 0);
+    b.buffs[type] = 0.01;
+    b.tick(1 / 60);
+    b.launch(0, 0.58, 0, rifleRound, 1, 3);
+    assert.equal(b.shots.at(-1).range, shotRange);
+    assert.equal(extended.range, extendedRange);
+  }
+});
+
+test('a close boss pursues both outside lanes, locks its warning and can be dodged', () => {
+  for (const side of [-1, 1]) {
+    const events = [],
+      b = new Battle((e) => events.push(e));
+    b.start();
+    b.allies = [];
+    b.gates = [];
+    b.features = [];
+    b.wall.hp = 0;
+    b.x = 5.1 * side;
+    b.targetX = b.x;
+    Object.assign(b.boss, { active: true, x: 0, z: -7.3, nextCast: 100 });
+    for (let i = 0; i < 270 && !b.boss.attackT; i++) b.advanceBoss(1 / 60);
+    assert.ok(b.boss.pursuing && b.boss.x * side > 3.2 && b.boss.attackT > 0);
+    assert.equal(b.boss.landX, b.x);
+    const locked = b.boss.landX;
+    b.x = -side * 5.1;
+    for (let i = 0; i < 112; i++) b.advanceBoss(1 / 60);
+    assert.equal(b.boss.landX, locked);
+    assert.equal(b.armor, 3);
+    assert.equal(events.filter((e) => e.kind === 'slam').length, 1);
+    for (let i = 0; i < 330 && b.boss.landX === locked; i++) b.advanceBoss(1 / 60);
+    assert.ok(b.boss.landX * side < -3.5);
+    for (let i = 0; i < 65; i++) b.advanceBoss(1 / 60);
+    assert.equal(b.armor, 2);
+  }
+});
+
+test('a boss changes lanes around an active supply and never plants its feet on the board', () => {
+  const b = new Battle();
+  b.start();
+  b.x = 4.5;
+  b.allies = [];
+  b.features = [];
+  b.wall.hp = 0;
+  const g = b.gates[0];
+  g.x = 0;
+  g.at = 4;
+  b.gates = [g];
+  Object.assign(b.boss, { x: 0, z: -8.1, active: true, nextCast: 100 });
+  for (let i = 0; i < 180; i++) {
+    b.worldAdvance = 2.3 / 60;
+    b.distance += b.worldAdvance;
+    b.crossGates();
+    b.advanceBoss(1 / 60);
+    if (b.boss.lift < 0.12)
+      assert.ok(Math.abs(b.boss.z - g.z) > 0.74 || Math.abs(b.boss.x - g.x) > 2.9);
+  }
+});
+
+test('the last red straggler actually falls before the captain and every surviving ally run off the top', () => {
+  const events = [],
+    b = new Battle((e) => events.push(e.kind));
+  b.start();
+  b.gates = [];
+  b.features = [];
+  b.wall.hp = 0;
+  b.row = b.lastRow;
+  for (let i = 0; i < 8; i++) b.recruit(0, true);
+  Object.assign(b.boss, { active: true, z: -5 });
+  b.damageBoss({ kind: 'rocket' }, 99999);
+  const last = b.grunt(4.8, 8.9);
+  last.spent = true;
+  b.runners = [last];
+  const start = b.captainZ;
+  for (let i = 0; i < 720 && b.phase === 'clear'; i++) b.tick(1 / 60);
+  assert.equal(last.alive, false);
+  assert.ok(b.score && b.boss.removed && b.parade && b.phase === 'won');
+  assert.ok(!b.resultReady && b.captainZ >= start - 0.01);
+  const n = b.allies.length;
+  for (let i = 0; i < 85; i++) b.tick(1 / 60, 1, 1);
+  assert.ok(b.captainZ < start - 6 && !b.resultReady);
+  for (let i = 0; i < 400 && !b.resultReady; i++) b.tick(1 / 60);
+  assert.equal(b.allies.length, n);
+  assert.ok(b.resultReady && b.allies.every((a) => a.z < b.entryZ) && b.captainZ < b.entryZ);
+  assert.equal(events.filter((k) => k === 'rally').length, 1);
+  b.reset(2);
+  assert.equal(b.parade, null);
 });

@@ -4,6 +4,7 @@ import {
   cannonRound,
   plasmaRound,
   shotRange,
+  extendedRange,
   flightHeight,
   sampleFlight,
 } from './projectiles.js';
@@ -15,8 +16,9 @@ import {
   touchdown,
 } from './brawler-motion.js';
 import { advanceSkill, bosses } from './boss-skills.js';
-import { courseCards, supplies } from './supplies.js';
-import { campaign, isOpening, lastStage, terrainPiece } from './campaign.js';
+import { bossStep, clearLanding, closestSquadMember, escortPassage } from './boss-pursuit.js';
+import { cardWidth, courseCards, supplies } from './supplies.js';
+import { campaign, isOpening, laneCenter, lastStage, terrainPiece } from './campaign.js';
 import {
   hitMechanism,
   updateTerrain,
@@ -32,10 +34,9 @@ const WALL_AT = 21;
 const HALF_ROAD = 5.45;
 export const retreatRange = 1.38;
 const COLUMNS = 11;
-const COLUMN_SPACING = 0.435;
-const FIRST_COLUMN = -2.65;
-const ROW_SPACING = 0.515;
-const MARCH_SPEED = 1.22;
+const ROW_SPACING = 0.565;
+const MARCH_SPEED = 2.47;
+const waveLanes = [[-1, 1], [1, 0], [-1, 0], [1], [0, -1], [1, -1], [0], [0, 1], [-1]];
 const PACK_ROWS = 11;
 
 function formation(slot, scale) {
@@ -66,6 +67,7 @@ export class Battle {
     this.rope = null;
     this.planks = 0;
     this.overrun = null;
+    this.parade = null;
     this.chill = 0;
     this.hint = null;
     this.hintSequence = 0;
@@ -78,6 +80,7 @@ export class Battle {
     this.captainZ = 0;
     this.targetZ = 0;
     this.caught = false;
+    this.caughtBy = null;
     this.lossReason = null;
     this.worldAdvance = 0;
     this.x = 0;
@@ -100,7 +103,17 @@ export class Battle {
     this.rocketTimer = 0.18;
     this.volleyTimer = 0.06;
     this.volley = 0;
-    this.buffs = { rapid: 0, shield: 0, plasma: 0, spread: 0, drone: 0, fever: 0, frost: 0 };
+    this.buffs = {
+      rapid: 0,
+      shield: 0,
+      plasma: 0,
+      spread: 0,
+      drone: 0,
+      fever: 0,
+      frost: 0,
+      range: 0,
+      longshot: 0,
+    };
     this.supportTimer = 0;
     this.feverMeter = 0;
     this.row = 0;
@@ -137,24 +150,30 @@ export class Battle {
       defeatAge: 0,
       attackT: 0,
       impactDone: false,
+      pursuing: false,
+      yaw: 0,
       recovery: 0,
       leapFromX: 0,
       leapFromZ: 0,
       landX: 0,
       landZ: 0,
     };
-    this.gates = courseCards(this.stage).filter(
-      (card) =>
-        !this.features.some(
-          (p) =>
-            Math.abs(card.x - p.x) < 2.6 && Math.abs(card.at - p.at) < (p.length || 3.6) / 2 + 2.1,
-        ),
-    );
+    this.gates = courseCards(this.stage, this.features);
+    this.gates[2].cover = this.wall;
+    for (const card of this.gates) {
+      if (!card.coverSpec) continue;
+      card.cover = terrainPiece(card.coverSpec, this.stage);
+      this.features.push(card.cover);
+    }
     this.bossStride = 1.02 + Math.min(0.27, (this.stage - 1) * 0.014);
-    this.columns = Array.from({ length: COLUMNS }, (_, col) => {
-      const x = FIRST_COLUMN + col * COLUMN_SPACING;
-      return { x, minX: x - 0.18, maxX: x + 0.18, index: col, units: [] };
-    });
+    this.marchSpeed = MARCH_SPEED + Math.min(0.28, (this.stage - 1) * 0.012);
+    this.wave = null;
+    this.columns = Array.from({ length: COLUMNS }, (_, index) => ({
+      index,
+      minX: Infinity,
+      maxX: -Infinity,
+      units: [],
+    }));
     this.recruit(this.x, true);
   }
   rand() {
@@ -214,14 +233,14 @@ export class Battle {
     if (!initial) this.recruits++;
   }
   openCard(card) {
-    if (!card.active) return;
+    if (!card.active || card.cover?.hp > 0) return;
     card.active = false;
     card.collectedAt = this.elapsed;
     card.pop = 0;
     this.event('supplyBreak', card.x, 0.62, card.z);
     if (card.type === 'blast') {
       // The charge bursts into the ranks beside the card, on the same stretch of bridge.
-      const blastX = clamp(card.x, -1.8, 1.0);
+      const blastX = card.x;
       this.blast({ x: blastX, power: 5.8 }, card.z - 1.5);
       if (this.boss.active && Math.hypot(this.boss.x - blastX, this.boss.z - card.z + 1.5) < 4.6)
         this.damageBoss({ kind: 'rocket' }, 48);
@@ -272,6 +291,9 @@ export class Battle {
           this.armor = Math.min(3, this.armor + 1);
           for (let i = 0; i < 2; i++) this.recruit(this.x);
           this.notice('救援到队，护甲 +1');
+        } else if (f.type === 'range' || f.type === 'longshot') {
+          this.buffs[f.type] = f.type === 'range' ? 7 : 5.5;
+          this.notice(f.type === 'range' ? '全队远射 · 7秒' : '穿甲远射 · 5.5秒');
         } else {
           const duration = f.type === 'fever' ? 4.2 : f.type === 'shield' ? 5 : 6;
           this.buffs[f.type] = duration;
@@ -290,7 +312,7 @@ export class Battle {
         continue;
       }
       if (this.caught || Math.abs(g.z - this.captainZ) > 0.83) continue;
-      if (Math.abs(this.x - g.x) <= 1.06 + this.scale * 0.25) this.openCard(g);
+      if (Math.abs(this.x - g.x) <= cardWidth / 2 + this.scale * 0.16) this.openCard(g);
     }
   }
   marchPastBoss(unit, dt) {
@@ -307,7 +329,7 @@ export class Battle {
     else if (!unit.passSide) unit.passSide = unit.x < b.x ? -1 : 1;
     if (!gap && unit.x === unit.laneX) return;
     const side = unit.passSide || 1;
-    const span = side > 0 ? 2.09 - b.x : b.x + 3.05;
+    const span = Math.max(0.2, side > 0 ? 6.4 - b.x : b.x + 6.4);
     const across = clamp(Math.abs(unit.laneX - b.x) / span, 0, 1);
     const targetX = unit.laneX + side * gap * (1 - across);
     unit.x += (targetX - unit.x) * (1 - Math.exp(-9 * dt));
@@ -316,15 +338,36 @@ export class Battle {
   spawnRow() {
     const pack = Math.floor(this.row / PACK_ROWS);
     const inPack = this.row % PACK_ROWS;
+    if (!this.wave || this.row % (PACK_ROWS * 2) === 0) {
+      const index = Math.floor(pack / 2) + (this.stage - 1) * 2;
+      const mirror = this.stage % 2 ? 1 : -1;
+      this.wave = waveLanes[index % waveLanes.length].map((lane) => lane * mirror);
+      // Predict where this pack will meet a guarded card. Leave its firing lane clear
+      // on alternating exchanges and send the packed ranks down the adjacent lane.
+      const exchangeAt = this.distance + 6 + ((-this.entryZ - 6) * 3.65) / (3.65 + this.marchSpeed);
+      const prize = this.gates.find((g) => g.coverSpec && Math.abs(g.at - exchangeAt) < 5.2);
+      if (prize && index % 3 !== 2) {
+        const lane = prize.coverSpec.lane;
+        this.wave = this.wave.filter((value) => value !== lane);
+        if (!this.wave.length) this.wave = [lane === 0 ? mirror : 0];
+      }
+    }
+    const single = this.wave.length === 1;
     for (const c of this.columns) {
-      // A narrower vanguard and alternating stepped shoulders make the separate ranks legible.
-      const edge = pack % 2 ? c.index : COLUMNS - 1 - c.index;
-      if ((this.row < 4 && (c.index < 2 || c.index > 8)) || (inPack < 2 && edge > 8)) continue;
-      const side = ((this.row % 2) - 0.5) * 0.12;
-      const last = c.units[c.units.length - 1];
-      const entry = this.entryZ - 0.8 - 0.09 * (c.index % 2);
-      const z = last ? Math.min(entry, last.z - 0.37) : entry;
-      const e = this.grunt(c.x + side, z);
+      const i = c.index;
+      const size = single ? 9 : i < 6 ? 6 : 5;
+      const file = single || i < 6 ? i : i - 6;
+      const lane = this.wave[single || i < 6 ? 0 : 1];
+      if (file >= size || (inPack < 2 && (file === 0 || file === size - 1))) continue;
+      const spacing = single ? 0.43 : 0.52;
+      const side = ((this.row % 2) - 0.5) * 0.15;
+      const x = laneCenter(lane) + (file - (size - 1) / 2) * spacing + side;
+      const entry = this.entryZ - 0.86 - 0.12 * (file % 2);
+      const last = c.units.at(-1);
+      const z = last ? Math.min(entry, last.z - 0.4) : entry;
+      const e = this.grunt(x, z);
+      c.minX = Math.min(c.minX, e.x);
+      c.maxX = Math.max(c.maxX, e.x);
       if (inPack === 5 && c.index === (pack * 7) % COLUMNS && this.stage >= 2) {
         const roles = ['gunner'];
         if (this.stage >= 3) roles.push('weaver', 'brute', 'vault');
@@ -335,13 +378,13 @@ export class Battle {
         const heavy = e.role === 'brute' || e.role === 'guard';
         e.size *= heavy ? 1.42 : 1.1;
         e.hp = heavy ? 9 + this.stage * 0.65 : 3.2 + this.stage * 0.27;
-        e.speed = heavy ? 0.92 : e.role === 'weaver' ? 1.69 : 1.32;
+        e.speed = heavy ? 2.02 : e.role === 'weaver' ? 3.47 : 2.77;
         this.runners.push(e);
       } else if (
         inPack === 2 &&
         (c.index === (pack * 3) % COLUMNS || c.index === (pack * 3 + 5) % COLUMNS)
       ) {
-        e.speed = 1.72 + this.rand() * 0.21;
+        e.speed = 3.4 + this.rand() * 0.25;
         this.runners.push(e);
       } else {
         c.units.push(e);
@@ -350,11 +393,31 @@ export class Battle {
     this.row++;
   }
   moveGrunt(e, dt, frontage) {
-    const run = e.speed > 1.6;
+    // After a breakthrough the final survivors turn back into the firing line.
+    // Let an attacker finish crossing its victim before it turns.
+    if (
+      this.phase === 'clear' &&
+      (e.spent || e.z > this.captainZ + 0.75) &&
+      (!e.overBody || e.z > e.overBody.z + 1.06)
+    ) {
+      e.spent = true;
+      e.overBody = null;
+      const x = this.x + ((e.id % 5) - 2) * 0.28;
+      const z = this.captainZ - 2.15 - (e.id % 3) * 0.28;
+      const dx = clamp(x - e.x, -5.1 * dt, 5.1 * dt);
+      const dz = clamp(z - e.z, -4.7 * dt, 4.7 * dt);
+      e.x += dx;
+      e.z += dz;
+      e.marched += Math.hypot(dx, dz - this.worldAdvance);
+      if (Math.abs(dz) + Math.abs(dx) > 0.001)
+        e.yaw += (Math.atan2(dx, dz) - e.yaw) * (1 - Math.exp(-7 * dt));
+      return;
+    }
+    const run = e.speed >= 3.12;
     const charging =
-      !e.spent && e.z >= this.captainZ + (run ? -6.7 : -5.75) && e.z < this.captainZ + 1.65;
+      !e.spent && e.z >= this.captainZ + (run ? -8.4 : -6.9) && e.z < this.captainZ + 1.65;
     const oldX = e.x;
-    let speed = e.speed ?? MARCH_SPEED;
+    let speed = e.speed ?? this.marchSpeed;
     let lateral = 0;
     if (charging) {
       let targetX = this.x,
@@ -408,14 +471,14 @@ export class Battle {
       this.runners.find((e) => e.alive && e.role === 'standard' && e.z > -10)?.z ?? -100;
     const frontage = this.allies.filter((a) => a.z <= this.captainZ + 0.18);
     for (const c of this.columns) {
-      c.minX = c.x - 0.19;
-      c.maxX = c.x + 0.19;
+      c.minX = Infinity;
+      c.maxX = -Infinity;
       let count = 0,
         reordered = false;
       for (const e of c.units) {
         if (!e.alive) continue;
         this.moveGrunt(e, dt, frontage);
-        if (!e.alive || e.z > 10) continue;
+        if (!e.alive || (e.z > 10 && this.phase !== 'clear')) continue;
         c.minX = Math.min(c.minX, e.x);
         c.maxX = Math.max(c.maxX, e.x);
         if (count && c.units[count - 1].z < e.z) reordered = true;
@@ -425,9 +488,9 @@ export class Battle {
       if (reordered) c.units.sort((a, b) => b.z - a.z);
     }
     for (const e of this.runners) if (e.alive) this.moveGrunt(e, dt, frontage);
-    this.runners = this.runners.filter((e) => e.alive && e.z < 10);
+    this.runners = this.runners.filter((e) => e.alive && (e.z < 10 || this.phase === 'clear'));
     // Issue a row only after the preceding rank has travelled its physical spacing.
-    this.toNextRow -= this.worldAdvance + MARCH_SPEED * dt;
+    this.toNextRow -= this.worldAdvance + this.marchSpeed * dt;
     while (this.row < this.lastRow && this.toNextRow <= 0) {
       this.spawnRow();
       this.toNextRow += ROW_SPACING + (this.row % PACK_ROWS === 0 ? 0.38 : 0);
@@ -630,13 +693,14 @@ export class Battle {
       y,
       z,
       distance: 0,
-      range: shotRange,
+      range: this.buffs.range > 0 || this.buffs.longshot > 0 ? extendedRange : shotRange,
       age: 0,
       afterHit: 0,
       finished: false,
-      pierce: profile === plasmaRound ? 3 : 0,
+      pierce:
+        profile === plasmaRound ? 3 : this.buffs.longshot > 0 && profile !== cannonRound ? 1 : 0,
     };
-    let obstacle = this.firstHit(shot, shotRange);
+    let obstacle = this.firstHit(shot, shot.range);
     // Keep a clear, forward firing line. Only turn at the muzzle for a nearby
     // threat when there isn't already an immediate obstacle straight ahead.
     if (slope === 0 && (!obstacle || obstacle.distance > 2.35)) {
@@ -647,7 +711,7 @@ export class Battle {
         const distance = Math.hypot(dx, dz);
         shot.headingX = dx / distance;
         shot.headingZ = dz / distance;
-        shot.range = Math.min(shotRange, distance + 0.75);
+        shot.range = Math.min(shot.range, distance + 0.75);
         obstacle = this.firstHit(shot, shot.range);
       }
     }
@@ -755,8 +819,8 @@ export class Battle {
       if (p.target && p.state === 'ready' && p.target.z >= endZ - 0.7 && p.target.z <= shot.z + 0.7)
         check(p.target, p.half, p.depth);
     for (const card of this.gates) {
-      if (card.active && card.z >= endZ - 0.36 && card.z <= shot.z + 0.36)
-        check(card, supplies[card.type].tone === 'gold' ? 1.22 : 0.9, 0.15);
+      if (card.active && !(card.cover?.hp > 0) && card.z >= endZ - 0.36 && card.z <= shot.z + 0.36)
+        check(card, cardWidth / 2, 0.15);
     }
     if (this.boss.active && !this.boss.defeated) check(this.boss, 1.26, 0.7);
     for (const c of this.columns) {
@@ -793,6 +857,7 @@ export class Battle {
       b.skill = null;
       b.defeatAge = 0;
       this.phase = 'clear';
+      this.lastRow = this.row;
       this.event('finisher', b.x, 2.3, b.z, 1.5);
     }
   }
@@ -951,6 +1016,7 @@ export class Battle {
         b.removed &&
         b.defeatAge > 2.05 &&
         !this.flanks.length &&
+        !this.deliveries.length &&
         this.row >= this.lastRow &&
         !this.runners.length &&
         this.columns.every((col) => col.units.length === 0)
@@ -964,6 +1030,7 @@ export class Battle {
         b.active = true;
         this.phase = 'boss';
         if (this.route.vault) finaleGap(this);
+        else b.x = b.escortX = escortPassage(this, b.z - 1.3, b.z + 6).x;
       }
       return;
     }
@@ -987,7 +1054,7 @@ export class Battle {
       }
       if (b.attackT >= attackDuration) {
         b.attackT = 0;
-        b.recovery = 0.92;
+        b.recovery = 1.14;
       }
       return;
     }
@@ -1008,38 +1075,26 @@ export class Battle {
     b.special =
       b.kind === 'drill' ? smoothRange(cycle, 1.1, 1.55) * (1 - smoothRange(cycle, 2.35, 2.85)) : 0;
     const rush = b.skill?.kind === 'warden' && b.skill.fired && !b.skill.marks[0].hit ? 2.2 : 0;
-    const stride = dt * this.bossStride * (1 - 0.38 * b.brace + 0.78 * b.special + rush);
-    b.z += this.worldAdvance + stride;
-    b.marched += stride;
+    if (!b.pursuing && b.z >= this.captainZ - 9.7) b.pursuing = true;
+    const target = b.pursuing ? closestSquadMember(this) : null;
+    const pace = b.pursuing ? 2.75 : this.bossStride;
+    const stride = dt * pace * (1 - 0.38 * b.brace + 0.78 * b.special + rush);
+    bossStep(this, dt, target, stride);
     if (b.kind === 'kestrel' && b.z > -11 && b.z < -7 && !b.glided && !b.skill) {
       b.glided = true;
       b.vault = { piece: { z: b.z + 2 }, from: -2, to: 2.1, t: 0, airDash: true };
       return;
     }
-    if (b.z > 4.5) {
-      this.lossReason = 'breach';
-      this.finish(false);
-      return;
-    }
-    b.x = clamp(b.x + clamp(this.x - b.x, -dt * 0.9, dt * 0.9), -1.13, -0.1);
-    if (b.recovery > 0 || b.z < -4.8 || b.skill) return;
-    let nearest = null,
-      best = 3.65;
-    const consider = (x, z) => {
-      if (z < b.z - 0.2) return;
-      const d = Math.hypot(x - b.x, z - b.z);
-      if (d < best) {
-        best = d;
-        nearest = { x, z };
-      }
-    };
-    consider(this.x, this.captainZ);
-    for (const a of this.allies) consider(a.x, a.z);
-    if (!nearest) return;
+    if (!b.pursuing || b.recovery > 0 || b.skill) return;
+    const nearest = closestSquadMember(this);
+    if (nearest.distance > 3.38) return;
+    const landX = clamp(nearest.x, -5.32, 5.32);
+    const landZ = nearest.z;
+    if (!clearLanding(this, landX, landZ - 0.68)) return;
     b.leapFromX = b.x;
     b.leapFromZ = b.z;
-    b.landX = clamp(nearest.x, -1.13, -0.1);
-    b.landZ = clamp(nearest.z, b.z + 0.68, b.z + 2.8);
+    b.landX = landX;
+    b.landZ = landZ;
     b.attackT = 0.001;
     b.impactDone = false;
   }
@@ -1052,7 +1107,21 @@ export class Battle {
     this.endTime = 0;
     this.shots = [];
     this.incoming = [];
-    if (win) return;
+    if (win) {
+      // Sort each row from left to right so the squad can close ranks without crossing.
+      const ranks = [...this.allies].sort((a, b) => a.z - b.z);
+      for (let i = 0; i < ranks.length; i += 5) {
+        const row = ranks.slice(i, i + 5).sort((a, b) => a.x - b.x);
+        row.forEach((ally, file) => {
+          ally.exitX = (file - (row.length - 1) / 2) * 0.58;
+          ally.exitZ = 0.98 + Math.floor(i / 5) * 0.64;
+        });
+      }
+      this.parade = { complete: false, originX: this.x };
+      this.recoil = 0;
+      this.event('rally', this.x, 0.14, this.captainZ);
+      return;
+    }
     this.event('loss', this.x, 0, this.captainZ);
     if (this.lossReason === 'infantry') {
       let leader = attacker?.alive && attacker.id ? attacker : null;
@@ -1123,7 +1192,27 @@ export class Battle {
     for (const c of this.columns) for (const e of c.units) march(e);
     this.runners.forEach(march);
   }
+  advanceParade(dt) {
+    const parade = this.parade;
+    if (parade.complete) return;
+    const t = this.endTime;
+    const speed = (7.4 + Math.min(18, t * 8.6)) * smoothRange(t, 0.12, 0.58);
+    const dz = speed * dt;
+    this.x = parade.originX * (1 - smoothRange(t, 0.16, 1.65));
+    this.velocity = 0;
+    this.captainZ -= dz;
+    let tail = this.captainZ;
+    for (const ally of this.allies) {
+      ally.age += dt;
+      ally.x += (this.x + ally.exitX - ally.x) * (1 - Math.exp(-4.8 * dt));
+      ally.z -= dz;
+      ally.z += (this.captainZ + ally.exitZ - ally.z) * (1 - Math.exp(-4.2 * dt));
+      tail = Math.max(tail, ally.z);
+    }
+    parade.complete = tail < this.entryZ - 2.8;
+  }
   get resultReady() {
+    if (this.parade) return this.parade.complete;
     if (this.boss.defeated && this.boss.defeatAge < 2.05) return false;
     return this.overrun ? this.overrun.crossed && this.endTime >= 2.5 : this.endTime > 0.86;
   }
@@ -1132,6 +1221,7 @@ export class Battle {
     if (!this.playing) {
       if (this.phase === 'won' || this.phase === 'lost') {
         this.endTime += dt;
+        if (this.parade) this.advanceParade(dt);
         if (this.overrun) this.advanceOverrun(dt);
         if (this.phase === 'lost' && this.boss.defeated && this.boss.defeatAge < 2.05)
           this.advanceBoss(dt);
@@ -1151,6 +1241,10 @@ export class Battle {
     this.wall.flash = Math.max(0, this.wall.flash - 4.6 * dt);
     this.boss.hit = Math.max(0, this.boss.hit - 5.4 * dt);
     this.visualScale += (this.scale - this.visualScale) * (1 - Math.exp(-8 * dt));
+    if (this.caught && this.caughtBy?.hp <= 0) {
+      this.caught = false;
+      this.caughtBy = null;
+    }
     if (axis || back) this.aim(this.targetX + axis * 10.2 * dt, this.targetZ + back * 3.1 * dt);
     if (!this.caught) this.captainZ += (this.targetZ - this.captainZ) * (1 - Math.exp(-16 * dt));
     const oldX = this.x;
@@ -1181,7 +1275,12 @@ export class Battle {
     }
     this.pushWall(dt);
     for (const p of this.features)
-      if (p.kind === 'cache' && p.state === 'ready' && p.z > -4 && p.z < 11)
+      if (
+        (p.kind === 'cache' || (p.kind === 'cover' && p.variant !== 'glass')) &&
+        p.state === 'ready' &&
+        p.z > -4 &&
+        p.z < 11
+      )
         this.pushWall(dt, p, p.half);
     if (!this.playing) return;
     this.advanceCrowd(dt);

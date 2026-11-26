@@ -22,7 +22,90 @@ const iron = '#506272',
   wood = '#b78053';
 const clamp = THREE.MathUtils.clamp;
 
-function hardware(kind, length = 4.4, direction = 1) {
+// Each rack has one material-specific silhouette and a low health plate so
+// the reward on its own board remains visible behind it from the game camera.
+function coverHardware(variant) {
+  const base = [];
+  const sections = [];
+  if (variant === 'glass') {
+    base.push(
+      slab(3.87, 0.17, 0.83, wood, 0, 0.11, 0, 0.04),
+      slab(3.83, 0.28, 0.075, iron, 0, 0.26, 0.38, 0.025),
+    );
+    for (const x of [-1.79, 1.79]) base.push(slab(0.15, 0.62, 0.77, dark, x, 0.35, 0, 0.03));
+    for (const [i, x] of [0, -1.12, 1.12].entries()) {
+      const h = i === 0 ? 1.14 : 0.91;
+      const parts = [
+        drum(0.38, 0.32, 0.12, '#176c72', x, 0.23, 0),
+        drum(0.38, 0.38, h * 0.59, '#45bdb3', x, 0.28 + h * 0.29, 0),
+        drum(0.13, 0.38, h * 0.32, '#7ae1cc', x, 0.28 + h * 0.74, 0),
+        drum(0.13, 0.13, 0.22, '#309994', x, 0.34 + h * 0.93, 0),
+        drum(0.167, 0.167, 0.09, '#f7cf7a', x, 0.46 + h * 0.93, 0),
+        drum(0.39, 0.39, 0.14, '#f7edbe', x, 0.37 + h * 0.3, 0),
+        slab(
+          0.06,
+          h * 0.34,
+          0.045,
+          '#ddfff2',
+          x - 0.21,
+          0.48 + h * 0.38,
+          0.3,
+          0.015,
+          turn(0, 0, -0.12),
+        ),
+      ];
+      sections.push(batch(parts));
+    }
+  } else if (variant === 'crates') {
+    base.push(slab(3.89, 0.15, 0.91, dark, 0, 0.09, 0, 0.035));
+    for (const [i, x] of [0, -1.24, 1.24].entries()) {
+      const h = i === 0 ? 1.35 : 0.96;
+      const parts = [slab(1.18, h, 0.78, i ? '#b77d49' : '#cf925c', x, 0.17 + h / 2, 0, 0.065)];
+      for (const sign of [-1, 1]) {
+        parts.push(
+          slab(0.105, h, 0.085, '#f0c685', x + sign * 0.48, 0.17 + h / 2, 0.4, 0.013),
+          slab(1.14, 0.078, 0.085, '#704d3c', x, 0.17 + h * (sign > 0 ? 0.9 : 0.12), 0.405, 0.012),
+          strut(
+            [x + sign * 0.46, 0.27, 0.46],
+            [x - sign * 0.46, h + 0.04, 0.46],
+            0.052,
+            '#ebc188',
+            6,
+          ),
+        );
+        for (const y of [0.3, h + 0.01])
+          parts.push(
+            drum(0.038, 0.038, 0.022, iron, x + sign * 0.48, y, 0.458, turn(Math.PI / 2), 8),
+          );
+      }
+      sections.push(batch(parts));
+    }
+  } else {
+    base.push(
+      slab(3.89, 0.16, 0.92, dark, 0, 0.09, 0, 0.05),
+      slab(3.84, 1.12, 0.6, '#56697b', 0, 0.71, 0, 0.06),
+    );
+    for (let i = 0; i < 5; i++)
+      base.push(
+        slab(3.62, 0.12, 0.14, i % 2 ? '#8ea3ad' : '#a7b7bf', 0, 0.29 + i * 0.21, 0.3, 0.025),
+      );
+    for (const x of [-1.79, 1.79]) {
+      base.push(slab(0.21, 1.37, 0.7, iron, x, 0.67, 0, 0.04));
+      for (const y of [0.3, 0.73, 1.14])
+        base.push(slab(0.22, 0.14, 0.06, '#f2bc59', x, y, 0.369, 0, turn(0, 0, 0.18)));
+    }
+    base.push(
+      slab(0.93, 0.74, 0.14, dark, 0, 0.8, 0.36, 0.055),
+      ring(0.258, 0.067, '#ffb94e', 0, 0.83, 0.46),
+      drum(0.15, 0.15, 0.06, '#ee702e', 0, 0.83, 0.47, turn(Math.PI / 2), 16),
+    );
+  }
+  base.push(slab(1.13, 0.32, 0.08, dark, 0, 0.23, 0.455, 0.035));
+  return { base: batch(base), sections };
+}
+
+function hardware(kind, length = 4.4, direction = 1, variant) {
+  if (kind === 'cover') return coverHardware(variant);
   const base = [],
     planks = [],
     moving = [];
@@ -324,12 +407,15 @@ export function createTerrainArt(root) {
     axis = new THREE.Vector3(),
     up = new THREE.Vector3(0, 1, 0);
   function item(p) {
-    const key = p.kind + ':' + (p.length || 0) + ':' + (p.direction || 0);
-    if (!terrainAssets.has(key)) terrainAssets.set(key, hardware(p.kind, p.length, p.direction));
+    const key = [p.kind, p.variant || '', p.length || 0, p.direction || 0].join(':');
+    if (!terrainAssets.has(key))
+      terrainAssets.set(key, hardware(p.kind, p.length, p.direction, p.variant));
     const template = terrainAssets.get(key),
       g = new THREE.Group(),
       base = template.base.clone();
     g.add(base);
+    const sections = (template.sections || []).map((part) => part.clone());
+    for (const section of sections) g.add(section);
     let leaf, arrows, label;
     const chains = [];
     if (template.deck) {
@@ -341,14 +427,21 @@ export function createTerrainArt(root) {
       arrows = template.arrows.clone();
       g.add(arrows);
     }
-    if (p.kind === 'cache' || p.kind === 'bridge' || p.kind === 'coil') {
+    if (p.kind === 'cache' || p.kind === 'bridge' || p.kind === 'coil' || p.kind === 'cover') {
       label = marker();
       g.add(label.mesh);
       label.mesh.position.set(
         0,
-        p.kind === 'cache' ? 0.66 : p.kind === 'coil' ? 0.55 : 0.43,
-        p.kind === 'bridge' ? p.length / 2 + 0.48 : p.kind === 'coil' ? 0.56 : 0.397,
+        p.kind === 'cover' ? 0.25 : p.kind === 'cache' ? 0.66 : p.kind === 'coil' ? 0.55 : 0.43,
+        p.kind === 'cover'
+          ? 0.512
+          : p.kind === 'bridge'
+            ? p.length / 2 + 0.48
+            : p.kind === 'coil'
+              ? 0.56
+              : 0.397,
       );
+      if (p.kind === 'cover') label.mesh.scale.setScalar(0.78);
     }
     if (p.kind === 'bridge')
       for (let i = 0; i < 2; i++) {
@@ -357,7 +450,7 @@ export function createTerrainArt(root) {
         chains.push(m);
       }
     root.add(g);
-    return { g, base, leaf, arrows, chains, label };
+    return { g, base, leaf, arrows, chains, sections, label };
   }
   function update(s) {
     const theme = s.route.theme;
@@ -399,12 +492,28 @@ export function createTerrainArt(root) {
       live.set(p, v);
       v.g.visible = true;
       v.g.position.set(p.x, 0, p.z);
+      if (p.kind === 'cover') {
+        const fraction = p.hp / p.maxHp;
+        v.sections.forEach((part, i) => {
+          part.visible = fraction > i * 0.34;
+        });
+        v.g.rotation.z = Math.sin(p.age * 95) * p.flash * 0.033;
+      }
+      if (s.parade && p.kind !== 'bridge' && p.kind !== 'gap') {
+        v.g.position.y -= 1.8 * THREE.MathUtils.smoothstep(s.endTime, 0, 0.48);
+        if (s.endTime >= 0.49) v.g.visible = false;
+      }
       if (p.kind === 'gap' || p.kind === 'bridge') {
+        if (s.parade) {
+          v.exitAngle ??= v.leaf.visible ? v.leaf.rotation.x : Math.PI / 2;
+          v.leaf.position.y = 0.03;
+        }
         if (count < cuts.length) cuts[count++].set(p.x, p.z, laneWidth / 2 - 0.055, p.length / 2);
-        v.leaf.visible = p.kind === 'bridge' || p.state === 'repaired';
+        v.leaf.visible = Boolean(s.parade) || p.kind === 'bridge' || p.state === 'repaired';
         const progress = THREE.MathUtils.smoothstep(p.age, 0, 0.58);
-        v.leaf.rotation.x =
-          p.state === 'cut'
+        v.leaf.rotation.x = s.parade
+          ? v.exitAngle * (1 - THREE.MathUtils.smoothstep(s.endTime, 0, 0.45))
+          : p.state === 'cut'
             ? -0.2 + 1.6 * progress
             : p.state === 'ready' && p.kind === 'bridge'
               ? -0.2
@@ -433,10 +542,16 @@ export function createTerrainArt(root) {
         v.label.mesh.visible = p.state === 'ready';
         if (v.label.mesh.visible)
           v.label.label(
-            (p.kind === 'bridge' ? '断索 ' : p.kind === 'coil' ? '电 ' : '箱 ') + Math.ceil(p.hp),
+            (p.kind === 'cover'
+              ? ''
+              : p.kind === 'bridge'
+                ? '断索 '
+                : p.kind === 'coil'
+                  ? '电 '
+                  : '箱 ') + Math.ceil(p.hp),
           );
       }
-      if ((p.kind === 'cache' || p.kind === 'coil') && p.state !== 'ready')
+      if ((p.kind === 'cache' || p.kind === 'coil' || p.kind === 'cover') && p.state !== 'ready')
         v.base.scale.setScalar(1 - THREE.MathUtils.smoothstep(p.age, 0, 0.24));
     }
     for (let i = count; i < cuts.length; i++) cuts[i].set(0, -1000, 0, 0);

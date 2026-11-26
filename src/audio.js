@@ -19,6 +19,10 @@ const cues = {
   kestrelCast: { duration: 0.66, gain: 0.23, interval: 0.42 },
   engineStrike: { duration: 0.44, gain: 0.3, interval: 0.24 },
   bossBurst: { duration: 0.79, gain: 0.4, interval: 0.7 },
+  glassBreak: { duration: 0.39, gain: 0.24, interval: 0.17 },
+  crateBreak: { duration: 0.32, gain: 0.24, interval: 0.2 },
+  latchHit: { duration: 0.16, gain: 0.16, interval: 0.1 },
+  rally: { duration: 0.9, gain: 0.28, interval: 1 },
   chainSnap: { duration: 0.29, gain: 0.28, interval: 0.23 },
   discharge: { duration: 0.41, gain: 0.26, interval: 0.23 },
   vaultLand: { duration: 0.25, gain: 0.21, interval: 0.4 },
@@ -153,6 +157,28 @@ function buildSound(context, kind) {
     case 'vaultLand':
       tone(0, 0.2, 115, 49, 0.7);
       noise(0.01, 0.19, 720, 0.61);
+      break;
+    case 'glassBreak':
+      noise(0, 0.075, 5100, 0.58);
+      for (const [t, hz] of [
+        [0, 2110],
+        [0.035, 1560],
+        [0.075, 2940],
+        [0.12, 1020],
+      ])
+        bell(t, 0.19, hz, 0.34);
+      break;
+    case 'crateBreak':
+      noise(0, 0.17, 1280, 0.8);
+      noise(0.065, 0.14, 2310, 0.43);
+      tone(0, 0.19, 128, 62, 0.39);
+      break;
+    case 'latchHit':
+      bell(0, 0.14, 1290, 0.58);
+      noise(0, 0.035, 3000, 0.3);
+      break;
+    case 'rally':
+      for (const [i, hz] of [392, 494, 587, 784].entries()) bell(i * 0.116, 0.34, hz, 0.53);
       break;
     case 'chainSnap':
       noise(0, 0.048, 4300, 0.65);

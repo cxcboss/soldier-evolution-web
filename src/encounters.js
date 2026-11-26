@@ -1,8 +1,9 @@
 import { isOpening, laneWidth, laneName, overOpening, terrainPiece } from './campaign.js';
 import { makeCard } from './supplies.js';
+import { escortPassage } from './boss-pursuit.js';
 
 const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
-const shootable = new Set(['cache', 'bridge', 'coil']);
+const shootable = new Set(['cache', 'bridge', 'coil', 'cover']);
 
 function revealCard(b, p, type) {
   const card = makeCard(p.x, b.distance - p.z + 0.85, type, b.stage);
@@ -13,14 +14,28 @@ function revealCard(b, p, type) {
 
 export function hitMechanism(b, p, shot) {
   if (p.state !== 'ready') return;
-  p.hp = Math.max(0, p.hp - shot.damage);
+  const latch = p.variant === 'shutter' && Math.abs(shot.x - p.x) < 0.51;
+  let damage = shot.damage;
+  if (latch) damage *= 2.25;
+  if (p.variant === 'crates' && shot.kind === 'rocket') damage *= 1.4;
+  p.hp = Math.max(0, p.hp - damage);
   p.flash = 1;
   if (p.hp > 0) {
-    b.event('wallHit', shot.x, 0.65, shot.z, 0.55);
+    b.event(latch ? 'latchHit' : 'wallHit', shot.x, 0.65, shot.z, 0.55);
     return;
   }
   p.age = 0;
-  if (p.kind === 'cache') {
+  if (p.kind === 'cover') {
+    p.state = 'open';
+    if (p.variant === 'glass') {
+      b.event('glassBreak', p.x, 0.48, p.z);
+      const shatter = (e) => {
+        if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < 2.45) b.kill(e, 0.82, p.x);
+      };
+      for (const col of b.columns) for (const e of col.units) shatter(e);
+      for (const e of b.runners) shatter(e);
+    } else b.event(p.variant === 'crates' ? 'crateBreak' : 'wallBreak', p.x, 0.48, p.z);
+  } else if (p.kind === 'cache') {
     p.state = 'open';
     b.event('wallBreak', p.x, 0.57, p.z);
     revealCard(b, p, p.reward);
@@ -51,8 +66,20 @@ export function finaleGap(b) {
     relativeSpeed = b.bossStride;
   // Place the far lip from the real camera entry, so the take-off is visible on every aspect ratio.
   const lead = Math.max(4, ((-23 - boss.z) * relativeSpeed) / (2.3 + relativeSpeed));
+  let middle = boss.z + lead + 3;
+  let passage = escortPassage(b, boss.z - 1.1, middle + 3.8);
+  for (const offset of [-2, -4, -6]) {
+    if (!passage.conflicts) break;
+    const candidate = Math.max(boss.z + 5, boss.z + lead + 3 + offset);
+    const lane = escortPassage(b, boss.z - 1.1, candidate + 3.8);
+    if (lane.conflicts < passage.conflicts) {
+      passage = lane;
+      middle = candidate;
+    }
+  }
+  boss.x = boss.escortX = passage.x;
   const p = terrainPiece(
-    { kind: 'gap', lane: 0, length: 4.0, at: b.distance - boss.z - lead - 3.0 },
+    { kind: 'gap', lane: passage.lane, length: 4.0, at: b.distance - middle },
     b.stage,
   );
   p.z = b.distance - p.at;
@@ -75,6 +102,12 @@ export function updateTerrain(b, dt) {
         gap: side + '断桥，提前换道',
         bridge: '打断' + side + '吊索，截住增援',
         cache: '打碎' + side + '砖墙，取出补给',
+        cover:
+          p.variant === 'glass'
+            ? side + '玻璃瓶，击碎可震倒近兵'
+            : p.variant === 'crates'
+              ? side + '木箱，重炮拆得快'
+              : side + '钢闸，瞄准橙色锁扣',
         coil: '击中' + side + '线圈，放电清兵',
         belt: side + '传送带向' + (p.direction > 0 ? '右' : '左'),
       };
@@ -85,16 +118,22 @@ export function updateTerrain(b, dt) {
       p.target.x = p.x;
       p.target.z = p.z + (p.kind === 'bridge' ? p.length / 2 + 0.24 : 0);
     }
-    if (!p.escorted && p.kind === 'cache' && p.z >= b.entryZ - 5 && p.z < -8) {
+    if (
+      b.phase !== 'clear' &&
+      !p.escorted &&
+      p.kind === 'cache' &&
+      p.z >= b.entryZ - 5 &&
+      p.z < -8
+    ) {
       p.escorted = true;
       for (let row = 0; row < 2; row++)
         for (let col = -1; col <= 1; col++) {
           const e = b.grunt(p.x + col * 0.48, b.entryZ - 0.95 - row * 0.59);
-          e.speed = 1.57;
+          e.speed = 2.62;
           b.runners.push(e);
         }
     }
-    if (p.kind === 'bridge' && p.state === 'ready' && p.z >= -7.1) {
+    if (b.phase !== 'clear' && p.kind === 'bridge' && p.state === 'ready' && p.z >= -7.1) {
       p.state = 'linked';
       p.age = 0;
       b.flanks.push({
@@ -155,7 +194,7 @@ export function updateTerrain(b, dt) {
       flank.next += 0.16;
       flank.remaining--;
       const e = b.grunt(flank.x + ((flank.remaining % 3) - 1) * 0.12, b.entryZ - 0.92);
-      e.speed = 1.65;
+      e.speed = 3.18;
       e.flank = true;
       b.runners.push(e);
     }
