@@ -350,3 +350,34 @@ test('retreat moves the formation and every muzzle together, clamps to a short s
   for (let i = 0; i < 110; i++) b.tick(1 / 60, 0, -1);
   assert.ok(b.captainZ < 0.005 && Math.abs(b.allies[0].z - start) < 0.01);
 });
+
+test('the first boss crosses into the firing lane and finishes its opening attack even against a full boosted squad', () => {
+  const events = [],
+    b = new Battle((e) => events.push(e.kind));
+  b.entryZ = -46;
+  b.row = b.lastRow = b.finaleRow;
+  b.wall.hp = 0;
+  b.features = [];
+  b.gates = [];
+  for (let i = b.allies.length; i < 48; i++) b.recruit(0, true);
+  b.upgrades = 4;
+  b.start();
+  let boosted = false,
+    firstHit,
+    firstStrike;
+  for (let step = 0; step < 900 && !b.boss.defeated; step++) {
+    if (b.boss.active) b.aim(b.boss.x - 0.15);
+    if (!boosted && b.boss.active && b.boss.z >= -32) {
+      Object.assign(b.buffs, { fever: 4.2, longshot: 5.5, drone: 6 });
+      boosted = true;
+    }
+    b.tick(1 / 60);
+    if (b.boss.hp < b.boss.maxHp) firstHit ??= b.elapsed;
+    if (events.includes('bruiserStrike')) firstStrike ??= b.elapsed;
+  }
+  assert.ok(b.boss.defeated && firstHit < firstStrike && firstStrike < b.elapsed);
+  assert.ok(
+    b.elapsed - firstHit > 2.4 && b.boss.z > -15,
+    'the boss is visibly on the deck at defeat',
+  );
+});

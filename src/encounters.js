@@ -63,7 +63,7 @@ export function hitMechanism(b, p, shot) {
 
 export function finaleGap(b) {
   const boss = b.boss,
-    relativeSpeed = b.bossStride;
+    relativeSpeed = b.bossEntryStride;
   // Place the far lip from the real camera entry, so the take-off is visible on every aspect ratio.
   const lead = Math.max(4, ((-23 - boss.z) * relativeSpeed) / (2.3 + relativeSpeed));
   let middle = boss.z + lead + 3;
@@ -99,8 +99,7 @@ function advanceSkyfall(b, p) {
   }
   if (p.state !== 'warning') return;
   p.progress = clamp(1 - remaining / warningTravel, 0, 1);
-  const speed = b.boss.active ? 2.3 : 3.65;
-  p.fallProgress = clamp(1 - remaining / (0.55 * speed), 0, 1);
+  p.fallProgress = clamp(1 - remaining / (0.55 * b.roadSpeed), 0, 1);
   if (remaining > 0) return;
   p.state = 'landed';
   p.age = 0;

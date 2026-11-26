@@ -345,6 +345,25 @@ function marker() {
   };
 }
 
+// Bank landmarks live in the shadow of the raised deck. Keep a little of
+// each original timber, ore or brass pigment, then glaze its value toward
+// the blue of the surrounding water. Interactive bridge parts stay sunlit.
+function bankFinish(geometry) {
+  const attribute = geometry.getAttribute('color');
+  const ink = new THREE.Color('#14243d');
+  const reflected = new THREE.Color('#8294ab');
+  const paint = new THREE.Color(),
+    blue = new THREE.Color();
+  for (let i = 0; i < attribute.count; i++) {
+    paint.fromBufferAttribute(attribute, i);
+    const value = paint.r * 0.213 + paint.g * 0.715 + paint.b * 0.072;
+    blue.lerpColors(ink, reflected, Math.sqrt(value));
+    paint.lerp(blue, 0.79);
+    attribute.setXYZ(i, paint.r, paint.g, paint.b);
+  }
+  return geometry;
+}
+
 function outlook(theme) {
   const c = landscapes[theme],
     bits = [];
@@ -460,14 +479,14 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
         float swell=sin(q.x*.78+clock*.30)*.9+sin(q.x*.29-q.y*.19)*.54;
         float wave=sin(q.y*2.1+swell+clock*.56)+.45*sin(q.x*.82-q.y*1.8-clock*.31);
         float shelf=smoothstep(-.8,.95,sin(q.x*.27+q.y*.21)+.47*sin(q.x*.5-q.y*.24));
-        float foam=smoothstep(1.17,1.44,wave)*(.16+.40*shelf);
-        float gleam=.07+.17*shelf+foam;
+        float foam=smoothstep(1.17,1.44,wave)*(.06+.13*shelf);
+        float gleam=.05+.11*shelf+foam;
         if(biome>1.5){
           float seam=abs(sin(q.x*.68+sin(q.y*.91)+q.y*.64));
-          gleam=.035+.13*shelf+(.53+.27*sin(clock*.9+q.y*.7))*(1.-smoothstep(0.,.085,seam));
+          gleam=.035+.09*shelf+(.28+.115*sin(clock*.9+q.y*.7))*(1.-smoothstep(0.,.085,seam));
         }else if(biome>.5){
           float seam=abs(sin(q.x*.82+q.y*.6+sin(q.y*.55)));
-          gleam=.20+.25*shelf+.19*(1.-smoothstep(0.,.075,seam))+foam*.2;
+          gleam=.10+.17*shelf+.12*(1.-smoothstep(0.,.075,seam))+foam*.2;
         }
         float shore=abs(q.x-lateralBend(pos.z));
         vec3 c=mix(deep,crest,clamp(gleam,0.,1.));
@@ -559,9 +578,9 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
       }
       region = theme;
       if (!scenic.has(theme)) {
-        const m = new THREE.InstancedMesh(outlook(theme), metal, 10);
+        const m = new THREE.InstancedMesh(bankFinish(outlook(theme)), metal, 10);
         m.frustumCulled = false;
-        const landmark = new THREE.InstancedMesh(roadside(theme), metal, 3);
+        const landmark = new THREE.InstancedMesh(bankFinish(roadside(theme)), metal, 3);
         landmark.frustumCulled = false;
         landmarks.set(theme, landmark);
         root.add(landmark);

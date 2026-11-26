@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <meta name="theme-color" content="#0a2036" />
+    <meta name="theme-color" content="#102943" />
     <title>小兵进化 · 港区远征</title>
     <link rel="icon" href="data:," />
-    <link rel="preload" as="image" href="./art/convoy-keyart.webp" />
-    <link rel="stylesheet" href="./game.css?v=expedition2" />
+    <link rel="preload" as="image" href="./art/convoy-keyart.webp?v=harbor-arcade1" />
+    <link rel="stylesheet" href="./game.css?v=harbor-arcade1" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
@@ -174,7 +174,14 @@
         </div>
       </header>
       <div id="buffs" class="buffs" hidden></div>
-      <div id="bossbar" class="bossbar" hidden>
+      <div
+        id="bossbar"
+        class="bossbar"
+        role="meter"
+        aria-labelledby="bossName"
+        aria-valuemin="0"
+        hidden
+      >
         <div></div>
         <small id="bossName"></small><b>800</b>
       </div>
@@ -188,7 +195,7 @@
           <p>
             <svg><use href="#i-mark" /></svg>港区远征
           </p>
-          <h1>小兵进化</h1>
+          <h1>小兵<span>进化</span></h1>
         </div>
         <div class="departure">
           <div class="mission">
@@ -245,6 +252,6 @@
       </div>
       <div id="problem" class="problem" hidden></div>
     </main>
-    <script type="module" src="./game.js?v=expedition2"></script>
+    <script type="module" src="./game.js?v=harbor-arcade1"></script>
   </body>
 </html>

@@ -118,13 +118,20 @@ function troops(scene, side, capacity) {
 function shadows(scene) {
   const c = document.createElement('canvas');
   c.width = c.height = 64;
-  const ctx = c.getContext('2d'),
-    gradient = ctx.createRadialGradient(30, 33, 1, 32, 32, 31);
-  gradient.addColorStop(0, 'rgba(22,23,45,.63)');
-  gradient.addColorStop(0.5, 'rgba(24,27,49,.47)');
-  gradient.addColorStop(0.83, 'rgba(32,32,53,.20)');
-  gradient.addColorStop(1, 'rgba(32,32,53,0)');
-  ctx.fillStyle = gradient;
+  const ctx = c.getContext('2d');
+  // A soft directional lobe plus a denser contact patch under the boots.
+  const penumbra = ctx.createRadialGradient(35, 32, 2, 34, 32, 29);
+  penumbra.addColorStop(0, 'rgba(36,35,57,.44)');
+  penumbra.addColorStop(0.53, 'rgba(38,36,58,.33)');
+  penumbra.addColorStop(0.83, 'rgba(44,41,63,.14)');
+  penumbra.addColorStop(1, 'rgba(44,41,63,0)');
+  ctx.fillStyle = penumbra;
+  ctx.fillRect(0, 0, 64, 64);
+  const contact = ctx.createRadialGradient(23, 32, 1, 24, 32, 17);
+  contact.addColorStop(0, 'rgba(25,24,46,.46)');
+  contact.addColorStop(0.57, 'rgba(28,27,49,.26)');
+  contact.addColorStop(1, 'rgba(28,27,49,0)');
+  ctx.fillStyle = contact;
   ctx.fillRect(0, 0, 64, 64);
   const texture = new THREE.CanvasTexture(c);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -149,11 +156,11 @@ function shadows(scene) {
     begin() {
       count = 0;
     },
-    put(x, z, size, elongate = 1) {
+    put(x, z, size, elongate = 1, reach = 1) {
       if (count >= 1600) return;
-      pose.position.set(x + size * 0.3, 0.021, z - size * 0.2);
+      pose.position.set(x + size * 0.29 * reach, 0.021, z - size * 0.19 * reach);
       pose.rotation.set(0, 0.65, 0);
-      pose.scale.set(size * 1.4, 0.95, size * 0.79 * elongate);
+      pose.scale.set(size * 1.68 * reach, 0.95, size * 0.85 * elongate);
       pose.updateMatrix();
       mesh.setMatrixAt(count++, pose.matrix);
     },
@@ -187,15 +194,15 @@ export function makeView(canvas, stage) {
     alpha: true,
     powerPreference: 'high-performance',
   });
-  renderer.setClearColor(0x092640, 0);
+  renderer.setClearColor(0x0d233b, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
   const bend = createRoadBend(renderer, scene);
-  scene.add(new THREE.HemisphereLight(0xf4f8ff, 0x8592b7, 1.55));
-  const key = new THREE.DirectionalLight(0xffeedc, 2.0);
+  scene.add(new THREE.HemisphereLight(0xf6f5ff, 0x85849b, 1.46));
+  const key = new THREE.DirectionalLight(0xfff0e6, 2.02);
   key.position.set(-8, 16, 6);
   scene.add(key);
-  const edge = new THREE.DirectionalLight(0xc3e8ff, 0.63);
+  const edge = new THREE.DirectionalLight(0xc7daff, 0.57);
   edge.position.set(7, 8, -8);
   scene.add(edge);
   const camera = new THREE.PerspectiveCamera(41, 1, 0.15, 150),
@@ -260,6 +267,7 @@ export function makeView(canvas, stage) {
     });
   const assets = Promise.all([modelReady, spritesReady]).then(([, loadedSprites]) => loadedSprites);
   let cameraX = -3.72,
+    bossPullback = 0,
     shake = 0,
     width = 1,
     height = 1,
@@ -292,19 +300,32 @@ export function makeView(canvas, stage) {
     const edgePan = Math.sign(s.x) * Math.max(0, Math.abs(s.x) - halfView * 0.54);
     const onCurve = bend.curve.x > 0;
     const nearPan = onCurve ? THREE.MathUtils.clamp(edgePan, -1.0, 1.0) : edgePan;
-    const focusX = THREE.MathUtils.lerp(nearPan, s.boss.x + bend.offset(s.boss.z), finishFocus);
+    // In portrait a close boss at the rail can extend beyond the screen. Frame
+    // both combatants as they meet and hold that framing through the fall.
+    const bossX = s.boss.x + bend.offset(s.boss.z);
+    const portrait = 1 - THREE.MathUtils.smoothstep(camera.aspect, 0.6, 0.92);
+    const duel = s.boss.active
+      ? portrait * THREE.MathUtils.smoothstep(s.boss.z, -16, -4) *
+        (1 - THREE.MathUtils.smoothstep(defeatTime, 1.45, 2.05))
+      : 0;
+    const center = THREE.MathUtils.lerp(s.x, bossX, 0.55);
+    const pan = THREE.MathUtils.lerp(nearPan, center, duel * 0.85);
+    const focusX = THREE.MathUtils.lerp(pan, bossX, finishFocus);
     const focusZ = (s.boss.z + 5.4) * finishFocus;
-    if (onCurve && !finishFocus) cameraX = THREE.MathUtils.clamp(cameraX, -1, 1);
+    if (onCurve && !s.boss.active) cameraX = THREE.MathUtils.clamp(cameraX, -1, 1);
     cameraX += (focusX - cameraX) * mix;
+    const desiredPullback = duel * (2.4 + Math.min(3, Math.abs(s.x - bossX) * 0.46));
+    bossPullback += (desiredPullback - bossPullback) * mix;
     shake = Math.max(0, shake - dt * 1.75);
     const jx = Math.sin(time * 58) * shake * shake * 0.19,
       jy = Math.sin(time * 72) * shake * shake * 0.12;
     // Pull back on winding roads while keeping the same distant entry line.
     // The near end follows the squad; the optical axis meets the bend farther
     // ahead, where both outside lanes must still be readable before a choice.
-    const eyeY = onCurve
+    const roadEyeY = onCurve
       ? THREE.MathUtils.clamp(19.5 + (0.5 - camera.aspect) * 29, 17.5, 23.4)
       : 15;
+    const eyeY = roadEyeY + bossPullback;
     const eyeZ = 13.2 + (eyeY - 15) * 0.81;
     const tangent = onCurve ? (cameraX - bend.offset(-22) * 0.45) / 30 : 0;
     const fovHalf = THREE.MathUtils.degToRad(camera.fov / 2);
@@ -493,8 +514,8 @@ export function makeView(canvas, stage) {
       countdown.position.set(b.landX, 0.051, b.landZ);
       countdown.scale.setScalar(0.3 + 0.7 * THREE.MathUtils.smoothstep(b.attackT, 0, touchdown));
     }
-    if (!dead || s.overrun) shade.put(s.x, s.captainZ + overrunFall * 0.4, 1.3 * mainSize);
-    if (boss.root.visible) shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65);
+    if (!dead || s.overrun) shade.put(s.x, s.captainZ + overrunFall * 0.4, 1.3 * mainSize, 1, 1.32);
+    if (boss.root.visible) shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65, 1.15);
     for (const r of [glow, ring]) {
       r.visible = !dead && !s.parade;
       r.position.set(s.x, 0.048, s.captainZ);
@@ -530,6 +551,7 @@ export function makeView(canvas, stage) {
     },
     reset(x) {
       cameraX = x * 0.94;
+      bossPullback = 0;
       shake = 0;
       effects.reset();
     },

@@ -11,7 +11,7 @@ import struct
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from scipy.interpolate import PchipInterpolator
 from scipy.ndimage import distance_transform_edt
 
@@ -202,6 +202,16 @@ def skin(part, v):
     return ["Hip" + side, "Knee" + side, "Ankle" + side], [1 - k, k - a, a]
 
 
+def torso_paint_row(height, x, row):
+    center = 1 - ease(84, 134, np.abs(x - 302))
+    chest = np.interp(
+        height,
+        [166, 218, 259, 288, 312, 334, 389, 445, 489, 519, 550],
+        [226, 232, 242, 258, 279, 289, 311, 330, 353, 378, 406],
+    )
+    return row * (1 - center) + chest * center
+
+
 def bake_strip(name, spec, contour):
     (_, _, width, height), rings = spec
     vmin, vmax = rings[0][0], rings[-1][0]
@@ -260,13 +270,7 @@ def bake_strip(name, spec, contour):
 
     fv = v
     if name == "torso":
-        center = 1 - ease(84, 134, np.abs(u - 302))
-        chest = np.interp(
-            h,
-            [166, 218, 259, 288, 312, 334, 389, 445, 489, 519, 550],
-            [226, 232, 242, 258, 279, 289, 311, 330, 353, 378, 406],
-        )[:, None]
-        fv = v * (1 - center) + chest * center
+        fv = torso_paint_row(h[:, None], u, v)
     if name.startswith("leg"):
         fv = np.maximum(415 if name == "legL" else 399, v)
     paint = sample(source, u, fv)
@@ -306,6 +310,70 @@ def bake_strip(name, spec, contour):
     return Image.fromarray(np.uint8(np.clip(final, 0, 255)))
 
 
+def material_strip(name, image):
+    """Author roughness and metallic by surface rather than embossing painted shadows."""
+    colors = np.asarray(image, dtype=float) / 255.0
+    red, green, blue = colors.transpose(2, 0, 1)
+    leather = ease(0.08, 0.32, red - green) * ease(0.04, 0.24, green - blue + 0.12)
+    skin = ease(0.32, 0.64, green / np.maximum(red, 0.02))
+    if name == "quiff":
+        rough = np.full_like(red, 0.43)
+    elif name == "head":
+        rough = 0.58 - 0.14 * ease(0.1, 0.36, green - blue)
+    elif name.startswith("arm"):
+        rough = 0.39 + 0.21 * skin
+    else:
+        rough = 0.83 - 0.47 * leather
+    packed = np.zeros_like(colors)
+    packed[:, :, 0] = 1
+    packed[:, :, 1] = rough
+    return Image.fromarray(np.uint8(packed * 255))
+
+
+def sculpt_surface(name, sn, cs, x, v, row):
+    """Broad forms follow the turnaround, smaller cuts follow the painted front."""
+    front = max(0.0, cs) ** 1.6
+
+    def bell(value, mid, width):
+        return math.exp(-0.5 * ((value - mid) / width) ** 2)
+
+    if name == "torso":
+        # Roll the lapels away from the shirt, break the collar at its notch,
+        # lift the hem away from the belt and pick out the sternum under the vest.
+        edge = np.interp(v, [185, 232, 284, 364, 462, 520], [95, 101, 114, 90, 78, 86])
+        side = abs(x - 302)
+        lip = 17 * bell(side, edge, 8.5) - 6 * bell(side, edge - 11, 4.5)
+        lapel = lip * ease(172, 219, v) * (1 - ease(474, 536, v))
+        chest = 9.0 * bell(side, 36, 23) * bell(v, 344, 32)
+        hem = 7 * bell(v, 516, 5) + 4 * bell(v, 475, 5)
+        return front * (lapel + chest) + hem
+    if name == "head":
+        brow = 115 + 0.22 * (24 - abs(x - 302))
+        brow_ridge = bell(row, brow, 4.8) * bell(abs(x - 302), 32, 15)
+        lip = bell(row, 168 + 0.055 * abs(x - 302), 2.8) * bell(x, 302, 23)
+        chin = bell(row, 208, 11) * bell(x, 302, 19)
+        return front * (11 * brow_ridge + 5 * lip + 7 * chin)
+    if name == "quiff":
+        locks = math.cos(11 * math.asin(sn) - row * 0.040 + 0.7 * cs)
+        return (6 * locks + 3 * locks * abs(locks)) * bell(v, 81, 40)
+    if name.startswith("arm"):
+        # An actual sleeve lip, thumb and distinct knuckle arc remain legible as the fist turns.
+        sleeve = 7 * bell(v, 382 - 14 * sn, 6) - 4 * bell(v, 393 - 14 * sn, 5)
+        u = sn if name == "armL" else -sn
+        thumb = 18 * bell(v, 606 + 21 * u, 19) * bell(u, 0.58, 0.25)
+        knuckles = sum(
+            bell(u, centre, 0.17) * bell(v, 648 + 13 * u, 11)
+            for centre in (-0.73, -0.27, 0.18, 0.62)
+        )
+        return sleeve + front * (thumb + 13 * knuckles)
+    # Outsole and padded boot collar, with cloth gathered above the knee.
+    return (
+        6 * bell(v, 867, 4.7)
+        + 4.3 * bell(v, 810 + 5 * sn, 5)
+        + front * 5 * bell(v, 716 - 11 * sn, 7)
+    )
+
+
 # Extend transparent edge texels for filtered texture samples.
 ty, tx = distance_transform_edt(
     turnaround[:, :, 3] < 160, return_distances=False, return_indices=True
@@ -314,15 +382,25 @@ views_paint = turnaround[ty, tx, :3]
 
 positions, texcoords, bone_ids, weights, indices, seams = [], [], [], [], [], []
 atlas = Image.new("RGB", (ATLAS_SIZE, ATLAS_SIZE), (165, 49, 43))
+material_atlas = Image.new("RGB", atlas.size, (255, 175, 0))
 for name, spec in parts.items():
     (ax, ay, width, height), rows = spec
     rings = np.array(rows)
     contour = PchipInterpolator(rings[:, 0], rings[:, 1:], axis=0)
-    atlas.paste(bake_strip(name, spec, contour), (ax, ay))
+    strip = bake_strip(name, spec, contour)
+    atlas.paste(strip, (ax, ay))
+    material_atlas.paste(material_strip(name, strip), (ax, ay))
     shell = np.asarray(shells[name])
     volume = PchipInterpolator(shell[:, 0], shell[:, 1:], axis=0)
-    rows_v = np.unique(np.r_[shell[:, 0], np.linspace(shell[0, 0], shell[-1, 0], 31)])
-    cols = 64 if name in ("quiff", "head") else 44
+    rows_v = np.unique(
+        np.r_[
+            shell[:, 0],
+            np.linspace(
+                shell[0, 0], shell[-1, 0], 57 if name in ("head", "quiff") else 49
+            ),
+        ]
+    )
+    cols = 72 if name in ("quiff", "head", "torso") else 48
     first = len(positions)
     for j, v in enumerate(rows_v):
         seams.append((len(positions), len(positions) + cols))
@@ -365,6 +443,9 @@ for name, spec in parts.items():
                 row -= 10.5 * dome * wave
                 row += 24 * max(0, cs) ** 6 * math.exp(-0.5 * ((v - 108) / 22) ** 2)
                 sx -= 8 * max(0, cs) * wave * ease(15, 48, v) * (1 - ease(96, 151, v))
+            depth = sculpt_surface(name, sn, cs, x, v, front_v)
+            bx += sn * depth * 0.43
+            sx -= cs * depth
             pos = world_point(bx, row, sx)
             positions.append(pos)
             texcoords.append(
@@ -389,10 +470,67 @@ for name, spec in parts.items():
                 c = a - cols - 1
                 d = c - 1
                 indices.extend([d, b, c, c, b, a])
-    for start, reverse in [(first, True), (len(positions) - cols - 1, False)]:
+    last_ring = len(positions) - cols - 1
+    for start, reverse in [(first, True), (last_ring, False)]:
         for i in range(1, cols - 1):
             a, b, c = start, start + i, start + i + 1
             indices.extend([a, b, c] if reverse else [a, c, b])
+
+    if name == "torso":
+        # The four embossed brass snaps use the same draw call and skin weights as their panel.
+        gold_uv = (1250 / ATLAS_SIZE, 1100 / ATLAS_SIZE)
+        for source_x, source_row, radius in [
+            (150, 138, 0.056),
+            (452, 138, 0.056),
+            (196, 341, 0.060),
+            (406, 341, 0.060),
+        ]:
+            candidates = []
+            for j, v in enumerate(rows_v):
+                y = front_row(name, v)
+                left, right = contour(np.clip(y, rings[0, 0], rings[-1, 0]))
+                for i in range(cols // 4, 3 * cols // 4 + 1):
+                    angle = 2 * math.pi * i / cols - math.pi
+                    x = 0.5 * (left + right + (right - left) * math.sin(angle))
+                    y_paint = torso_paint_row(v, x, y)
+                    candidates.append(
+                        ((x - source_x) ** 2 + (y_paint - source_row) ** 2, j, i)
+                    )
+            _, j, i = min(candidates)
+            k = first + j * (cols + 1) + i
+            dx = positions[k + 1] - positions[k - 1]
+            dy = positions[k - (cols + 1)] - positions[k + (cols + 1)]
+            normal = np.cross(dx, dy)
+            normal /= np.linalg.norm(normal)
+            dx /= np.linalg.norm(dx)
+            dy = np.cross(normal, dx)
+            start = len(positions)
+            for ringsize, lift in [
+                (1.0, -0.006),
+                (0.98, 0.010),
+                (0.72, 0.032),
+                (0.02, 0.040),
+            ]:
+                for f in range(12):
+                    angle = math.tau * f / 12
+                    positions.append(
+                        positions[k]
+                        + normal * lift
+                        + radius
+                        * ringsize
+                        * (dx * math.cos(angle) + dy * math.sin(angle))
+                    )
+                    texcoords.append(gold_uv)
+                    bone_ids.append(bone_ids[k])
+                    weights.append(weights[k])
+            for ring in range(3):
+                for f in range(12):
+                    a = start + ring * 12 + f
+                    b = start + ring * 12 + ((f + 1) % 12)
+                    indices.extend([a, b, a + 12, b, b + 12, a + 12])
+
+ImageDraw.Draw(atlas).rectangle((1234, 1084, 1266, 1116), fill=(243, 183, 52))
+ImageDraw.Draw(material_atlas).rectangle((1234, 1084, 1266, 1116), fill=(255, 90, 115))
 
 positions = np.asarray(positions, dtype=np.float32)
 tri = np.asarray(indices).reshape(-1, 3)
@@ -475,6 +613,11 @@ bind = attribute(inverse, "<f4", 5126, "MAT4")
 image = io.BytesIO()
 atlas.save(image, "JPEG", quality=90, subsampling=0, optimize=True)
 image_view = buffer_view(image.getvalue())
+surface_image = io.BytesIO()
+material_atlas.resize((768, 768), Image.Resampling.LANCZOS).save(
+    surface_image, "PNG", optimize=True
+)
+surface_view = buffer_view(surface_image.getvalue())
 mesh_node = len(nodes)
 nodes.append({"name": "Brawler", "mesh": 0, "skin": 0})
 doc = {
@@ -498,13 +641,17 @@ doc = {
             "name": "Painted leather, skin and cloth",
             "pbrMetallicRoughness": {
                 "baseColorTexture": {"index": 0},
-                "metallicFactor": 0,
-                "roughnessFactor": 0.76,
+                "metallicRoughnessTexture": {"index": 1},
+                "metallicFactor": 1,
+                "roughnessFactor": 1,
             },
         }
     ],
-    "textures": [{"source": 0}],
-    "images": [{"bufferView": image_view, "mimeType": "image/jpeg"}],
+    "textures": [{"source": 0}, {"source": 1}],
+    "images": [
+        {"bufferView": image_view, "mimeType": "image/jpeg"},
+        {"bufferView": surface_view, "mimeType": "image/png"},
+    ],
     "bufferViews": views,
     "accessors": access,
     "buffers": [{"byteLength": len(blob)}],

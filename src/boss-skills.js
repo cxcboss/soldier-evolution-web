@@ -164,7 +164,7 @@ export function advanceSkill(b, dt) {
   if (!boss.skill) {
     boss.nextCast -= dt;
     if (
-      boss.z >= -26 &&
+      boss.z >= -30 &&
       boss.z < (siegeFinale ? -1.65 : -5.2) &&
       !b.activeGround.some((p) => p.finale && !p.crossed && Math.abs(p.z - boss.z) < 7) &&
       !boss.vault &&

@@ -103,7 +103,7 @@ export function bossStep(battle, dt, target, stride) {
 // A warning stays where it was drawn. Reserve the feet's landing position
 // through touchdown and recovery as the surrounding supplies scroll downhill.
 export function clearLanding(battle, x, z) {
-  const scroll = battle.worldAdvance > 0 ? 2.3 : 0;
+  const scroll = battle.worldAdvance > 0 ? battle.roadSpeed : 0;
   return !obstacles(battle, z - scroll * 1.55, z + 0.25).some(
     (o) => Math.abs(x - o.x) < o.half && o.z - o.depth <= z && o.z + scroll * 1.55 + o.depth >= z,
   );

@@ -6,7 +6,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { jumpProgress, smoothRange, takeoff, touchdown, attackDuration } from './brawler-motion.js';
 
 export async function loadBrawler() {
-  const { scene: root } = await new GLTFLoader().loadAsync('./art/brawler.glb');
+  const { scene: root } = await new GLTFLoader().loadAsync('./art/brawler.glb?v=ringmaster2');
   const paint = creaturePaint();
   const bone = (name) => root.getObjectByName(name);
   const pelvis = bone('Pelvis'),
@@ -21,11 +21,9 @@ export async function loadBrawler() {
   const skin = bone('Brawler');
   skin.frustumCulled = false;
   const material = skin.material;
-  material.color.setScalar(0.7);
-  material.bumpMap = material.map;
-  material.bumpScale = 0.016;
+  material.color.setScalar(0.78);
   material.emissiveMap = material.map;
-  material.emissive.setScalar(0.3);
+  material.emissive.setScalar(0.22);
 
   // Give the buckle a beveled edge and an open centre even when seen obliquely.
   const frame = new THREE.Shape();
@@ -193,7 +191,7 @@ export async function loadBrawler() {
         side * (0.075 * swing + 0.11 * raised),
       );
     }
-    material.emissive.setRGB(0.3 + hit * 0.36, 0.3 + hit * 0.21, 0.3 + hit * 0.12);
+    material.emissive.setRGB(0.22 + hit * 0.36, 0.22 + hit * 0.21, 0.22 + hit * 0.12);
   }
   return { root, pose, prepare: paint.prepare };
 }

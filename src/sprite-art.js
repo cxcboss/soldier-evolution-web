@@ -1,12 +1,13 @@
 import * as THREE from 'three';
+import { helmetPaintGLSL } from './helmet-paint.js';
 import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
 
 // The source paintings include a few transparent edge pixels to keep minified art clean.
 // Each pivot sits between the boots. The captain's cannon makes his crop asymmetric.
 const designs = {
-  ally: { width: 0.467, height: 0.86, pivot: 0.49, pad: 0.008, capacity: 180, grid: [6, 8] },
-  captain: { width: 1.13, height: 1.73, pivot: 0.43, pad: 0.009, capacity: 1, grid: [13, 16] },
-  grunt: { width: 0.522, height: 0.86, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [6, 8] },
+  ally: { width: 0.49, height: 0.88, pivot: 0.49, pad: 0.008, capacity: 180, grid: [7, 10] },
+  captain: { width: 1.16, height: 1.73, pivot: 0.43, pad: 0.009, capacity: 1, grid: [16, 20] },
+  grunt: { width: 0.54, height: 0.88, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [7, 10] },
 };
 const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.smoothstep;
@@ -39,8 +40,12 @@ const vertexShader = `
       arms *= mix(1.0,0.18,smoothstep(pivot,pivot+0.12,uv.x));
     #endif
     point.x += swing * (0.042*arms-0.032*boots) + stride*.014*uv.y;
+    float ankle = 1.0-smoothstep(.08,.21,uv.y);
+    float chest = smoothstep(.28,.49,uv.y)*(1.0-smoothstep(.58,.72,uv.y));
+    point.x += sideSign*.017*lift*ankle + stride*.026*chest;
+    point.y += ankle*max(0.,-swing)*.024;
     point.y += .141*lift*boots + .026*abs(feet.z)*(1.0-boots) + swing*.058*arms;
-    float depthSwing = (boots*${footReach / 0.86}-arms*.16)*swing*dimensions.y;
+    float depthSwing = stride*.033*(uv.x-pivot)*chest + (boots*${footReach / 0.86}-arms*.16)*swing*dimensions.y;
     #ifdef ALLY
       depthSwing *= -1.0;
     #endif
@@ -67,6 +72,7 @@ const vertexShader = `
 `;
 
 const fragmentShader = `
+  ${helmetPaintGLSL}
   uniform sampler2D portrait;
   varying vec2 imageUv;
   varying vec3 colorTreatment;
@@ -76,6 +82,11 @@ const fragmentShader = `
     // Mild coverage AA retains fine helmet/gun edges at distant mip levels.
     float coverage = smoothstep(0.23,0.70,pixel.a);
     if (coverage < 0.11) discard;
+    #if defined(ALLY) || defined(CAPTAIN)
+      pixel.rgb = paintHelmet(pixel.rgb, imageUv.y, false);
+    #else
+      pixel.rgb = paintHelmet(pixel.rgb, imageUv.y, true);
+    #endif
     float luma = dot(pixel.rgb,vec3(0.2126,0.7152,0.0722));
     vec3 ash = vec3(0.13,0.15,0.18) + vec3(0.48,0.48,0.50)*luma;
     vec3 rgb = mix(pixel.rgb,ash,colorTreatment.z);
@@ -189,7 +200,7 @@ export async function createSpriteArt(scene) {
   const loader = new THREE.TextureLoader();
   const names = Object.keys(designs);
   const loaded = await Promise.allSettled(
-    names.map((name) => loader.loadAsync(`./art/${name}-field.webp`)),
+    names.map((name) => loader.loadAsync(`./art/${name}-field.webp?v=kit2`)),
   );
   const failure = loaded.find((result) => result.status === 'rejected');
   if (failure) {

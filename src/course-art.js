@@ -24,10 +24,10 @@ function makeDeckTexture(theme) {
   for (let y = 0; y < canvas.height; y++) {
     for (let x = 0; x < canvas.width; x++) {
       seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
-      const grain = (seed / 4294967296 - 0.5) * 5.2;
+      const grain = (seed / 4294967296 - 0.5) * 3.0;
       const edge = Math.min(x, canvas.width - 1 - x);
       const shade =
-        grain + 1.1 * Math.cos(x * 0.069 + Math.sin(y * 0.049)) - Math.max(0, 1 - edge / 12) * 16;
+        grain + 0.7 * Math.cos(x * 0.069 + Math.sin(y * 0.049)) - Math.max(0, 1 - edge / 12) * 16;
       const index = (y * canvas.width + x) * 4;
       pixels.data[index] = (base >> 16) + shade;
       pixels.data[index + 1] = ((base >> 8) & 255) + shade;
@@ -37,9 +37,9 @@ function makeDeckTexture(theme) {
   }
   ctx.putImageData(pixels, 0, 0);
   ctx.scale(2, 2);
-  ctx.fillStyle = 'rgba(81,74,91,.21)';
+  ctx.fillStyle = 'rgba(81,74,91,.13)';
   ctx.fillRect(0, 0, canvas.width, 1.5);
-  ctx.fillStyle = 'rgba(244,236,233,.36)';
+  ctx.fillStyle = 'rgba(249,243,249,.20)';
   ctx.fillRect(0, 2, canvas.width, 1);
   for (const x of [7, 249]) {
     for (const y of [9, 183]) {
@@ -61,20 +61,20 @@ function makeDeckTexture(theme) {
     for (const x of [21, 63, 105, 149, 193, 235]) {
       const wash = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
       wash.addColorStop(0, 'rgba(93,91,91,0)');
-      wash.addColorStop(0.48, 'rgba(93,91,91,.075)');
+      wash.addColorStop(0.48, 'rgba(76,72,94,.043)');
       wash.addColorStop(1, 'rgba(93,91,91,0)');
       ctx.fillStyle = wash;
       ctx.fillRect(x - 6, 0, 12, 192);
     }
-    line(0, 96, 256, 96, 'rgba(91,91,100,.32)', 1.05);
-    line(0, 97.5, 256, 97.5, 'rgba(255,249,238,.40)');
+    line(0, 96, 256, 96, 'rgba(91,87,102,.18)', 1.05);
+    line(0, 97.5, 256, 97.5, 'rgba(255,249,248,.24)');
     for (const [x, y] of [
       [6, 41],
       [246, 137],
     ]) {
-      ctx.fillStyle = '#898b8a';
+      ctx.fillStyle = '#92909e';
       ctx.fillRect(x, y, 4.1, 13);
-      for (let j = 1; j < 13; j += 2) line(x + 0.45, y + j, x + 3.7, y + j, '#555f65', 0.72);
+      for (let j = 1; j < 13; j += 2) line(x + 0.45, y + j, x + 3.7, y + j, '#6e7180', 0.72);
     }
     for (const [x, y] of [
       [28, 5],
@@ -87,11 +87,11 @@ function makeDeckTexture(theme) {
   } else if (theme === 'timber') {
     for (let i = 0; i < 8; i++) {
       let y = i * 24;
-      line(0, y, 256, y, colors.joint, 2);
-      line(0, y + 2, 256, y + 2, '#efc398', 1);
+      line(0, y, 256, y, colors.joint, 1.35);
+      line(0, y + 2, 256, y + 2, colors.rim, 0.7);
       for (let k = 0; k < 4; k++) {
         let x = (i * 41 + k * 71) % 244;
-        ctx.strokeStyle = 'rgba(112,69,43,.20)';
+        ctx.strokeStyle = 'rgba(102,91,110,.15)';
         ctx.beginPath();
         ctx.moveTo(x, y + 12);
         ctx.bezierCurveTo(x + 13, y + 6, x + 17, y + 15, x + 38, y + 10);
@@ -105,12 +105,12 @@ function makeDeckTexture(theme) {
           y = j * 48 + 5;
         ctx.strokeStyle = colors.joint;
         ctx.strokeRect(x, y, 71, 35);
-        for (let h = 0; h < 4; h++) line(x + 7 + h * 4, y + 26, x + 12 + h * 4, y + 19, '#82939f');
+        for (let h = 0; h < 4; h++) line(x + 7 + h * 4, y + 26, x + 12 + h * 4, y + 19, '#9a99aa');
       }
   } else if (theme === 'quarry' || theme === 'cinder') {
     for (let j = 0; j < 4; j++) {
       let y = j * 48;
-      line(0, y, 256, y + 1, colors.joint, 1.5);
+      line(0, y, 256, y + 1, colors.joint, 1.1);
       for (let i = 0; i < 4; i++) {
         let x = i * 76 + (j % 2) * 32;
         line(x, y, x + 2, y + 48, colors.joint);
@@ -120,8 +120,8 @@ function makeDeckTexture(theme) {
     for (let i = 0; i < 12; i++) {
       const x = (i * 63) % 249,
         y = (i * 47) % 175;
-      line(x, y, x + 14, y + 13, '#e2f4fa', 1.4);
-      line(x + 7, y + 7, x + 17, y + 6, '#a0c4d7');
+      line(x, y, x + 14, y + 13, '#d8dfe9', 1.4);
+      line(x + 7, y + 7, x + 17, y + 6, '#adb9c9');
     }
   }
   // A thin gutter, metal join plates and inset reflectors define the deck
@@ -130,10 +130,10 @@ function makeDeckTexture(theme) {
     const x = side < 0 ? 1.6 : 250.6;
     ctx.fillStyle = 'rgba(46,55,64,.32)';
     ctx.fillRect(x, 0, 3.8, 192);
-    ctx.fillStyle = 'rgba(239,230,203,.58)';
+    ctx.fillStyle = 'rgba(228,224,237,.42)';
     ctx.fillRect(x + 0.7, 0, 0.8, 192);
     for (const y of [28, 125]) {
-      ctx.fillStyle = '#626c6d';
+      ctx.fillStyle = '#737784';
       ctx.fillRect(x - 0.5, y, 5.2, 10);
       ctx.fillStyle = colors.rim;
       ctx.fillRect(x + 0.65, y + 2.1, 2.7, 3.7);
@@ -141,11 +141,11 @@ function makeDeckTexture(theme) {
   }
   for (const x of [256 / 3, 512 / 3]) {
     ctx.fillStyle = colors.line;
-    ctx.fillRect(x - 1.7, 0, 3.4, 192);
+    ctx.fillRect(x - 1.45, 0, 2.9, 192);
     ctx.fillStyle = colors.rim;
-    ctx.fillRect(x - 0.25, 0, 1.2, 192);
+    ctx.fillRect(x - 0.15, 0, .96, 192);
     for (let y = 7; y < 192; y += 48) {
-      ctx.fillRect(x - 1.6, y, 3, 12);
+      ctx.fillRect(x - 1.25, y, 2.5, 9);
     }
   }
   const texture = new THREE.CanvasTexture(canvas);
@@ -239,9 +239,9 @@ function gateBatch(group, type, shadowMaterial) {
   const w = cardWidth;
   const h = 1.09;
   const depth = 0.17;
-  const shell = merge ? '#b77e39' : '#345565';
-  const sideTrim = '#323e42';
-  const highlight = merge ? '#f0bf68' : '#7db7ba';
+  const shell = merge ? '#efbf12' : '#217cde';
+  const sideTrim = merge ? '#9c7a19' : '#245ba4';
+  const highlight = merge ? '#ffec66' : '#83ceff';
   const feet = [];
   const panels = [part(block(w - 0.1, h, depth, 0.047), shell, 0, h / 2, 0)];
   for (const sign of [-1, 1]) {

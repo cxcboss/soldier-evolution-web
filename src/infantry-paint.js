@@ -1,6 +1,74 @@
 import * as THREE from 'three';
+import { helmetPaintGLSL } from './helmet-paint.js';
 import { volumeGeometry } from './creature-paint.js';
 import { footReach, sampleFeet } from './infantry-walk.js';
+
+// Lift the metal shell, harness and boots off the underlying closed sculpture.
+// Coordinates are the same portrait UVs used by the gait rig. Only the existing
+// vertices are moved, so a whole formation keeps one instanced draw.
+function moldUniform(geometry, side) {
+  const captain = side === 'captain';
+  const width = captain ? 1.16 : side === 'red' ? 0.54 : 0.49;
+  const pos = geometry.attributes.position,
+    uv = geometry.attributes.uv;
+  const shellX = captain ? 0.42 : 0.5;
+  const height = captain ? 1.73 : 0.88;
+  const baseRise = Math.cos(0.43),
+    baseTilt = Math.sin(0.43);
+  const reliefPitch = captain ? 0.79 : 0.65;
+  const depthY = Math.sin(reliefPitch),
+    depthZ = Math.cos(reliefPitch);
+  const smooth = THREE.MathUtils.smoothstep;
+  const region = (u, v, cx, cy, rx, ry) => {
+    const d = ((u - cx) / rx) ** 2 + ((v - cy) / ry) ** 2;
+    return 1 - smooth(d, 0.13, 1);
+  };
+  for (let i = 0; i < pos.count; i++) {
+    const u = uv.getX(i),
+      v = uv.getY(i);
+    const front = geometry.attributes.surface.getX(i);
+    const crown = region(u, v, shellX, 0.818, captain ? 0.285 : 0.4, 0.19);
+    const brim = region(u, v, shellX, 0.726, captain ? 0.33 : 0.425, 0.055);
+    const sleeve = region(u, v, 0.18, 0.552, 0.16, 0.135) + region(u, v, 0.82, 0.552, 0.16, 0.135);
+    const boot = region(u, v, 0.33, 0.105, 0.155, 0.135) + region(u, v, 0.64, 0.118, 0.155, 0.13);
+    const waist = region(u, v, 0.285, 0.34, 0.115, 0.076) + region(u, v, 0.69, 0.35, 0.11, 0.078);
+    const strap =
+      (1 - smooth(Math.abs(u - (0.82 - 0.93 * v)), 0.024, 0.075)) *
+      region(u, v, 0.47, 0.475, 0.35, 0.2);
+    const fieldPack = side === 'blue' ? region(u, v, 0.5, 0.452, 0.29, 0.145) : 0;
+    const barrel = captain ? region(u, v, 0.836, 0.754, 0.156, 0.29) : 0;
+    // The near-facing breech has a raised brass collar around a recessed bore.
+    const boreRadius = captain ? Math.hypot((u - 0.842) / 0.139, (v - 0.666) / 0.086) : 2;
+    const bore = (1 - smooth(boreRadius, 0.6, 0.78)) * front;
+    const collar = smooth(boreRadius, 0.58, 0.78) * (1 - smooth(boreRadius, 0.89, 1.07));
+    const depth =
+      width *
+      (0.14 * crown +
+        0.071 * brim +
+        0.075 * sleeve +
+        0.09 * boot +
+        0.069 * waist +
+        0.054 * strap +
+        0.13 * fieldPack +
+        0.21 * barrel +
+        0.092 * collar -
+        0.18 * bore);
+    const normal = front ? 1 : -0.45;
+    // The portrait already includes a view of the helmet crown and cannon.
+    // Lay the relief depth toward the elevated camera so those front surfaces
+    // cannot fold down over the photographed brim or the opening of the bore.
+    const centerY = v * height * baseRise + 0.025;
+    const centerZ = 0.09 - v * height * baseTilt;
+    const relief =
+      (pos.getY(i) - centerY) * baseTilt + (pos.getZ(i) - centerZ) * baseRise + depth * normal;
+    const x =
+      pos.getX(i) +
+      (u - shellX) * width * (0.079 * brim + 0.033 * crown) +
+      (u - 0.5) * width * (0.04 * boot + 0.065 * sleeve);
+    pos.setXYZ(i, x, centerY + relief * depthY, centerZ + relief * depthZ);
+  }
+  geometry.computeVertexNormals();
+}
 
 // Bake the helmet, coat, limbs and boot volumes once for the whole formation.
 // Each instance keeps its own stance, stride and reaction while sharing one draw.
@@ -8,8 +76,9 @@ export function createInfantryModel(side, portrait, reverse, stride, capacity) {
   const captain = side === 'captain';
   const friendly = side !== 'red';
   const geometry = captain
-    ? volumeGeometry('captain', portrait, 1.13, 1.73)
-    : volumeGeometry('infantry', portrait, friendly ? 0.47 : 0.53, 0.86);
+    ? volumeGeometry('captain', portrait, 1.16, 1.73)
+    : volumeGeometry('infantry', portrait, friendly ? 0.49 : 0.54, 0.88);
+  moldUniform(geometry, side);
   geometry.setAttribute('stepPose', stride);
   const material = new THREE.ShaderMaterial({
     side: THREE.FrontSide,
@@ -42,6 +111,12 @@ export function createInfantryModel(side, portrait, reverse, stride, capacity) {
         float arm = smoothstep(0.14, 0.33, abs(lateral))
                   * smoothstep(0.27, 0.41, uv.y) * (1.-smoothstep(0.47, 0.64, uv.y));
         vec3 p = position;
+        // Boots bend at the ankle; the shoulders counter-rotate over planted hips.
+        float heel = leg * (1. - smoothstep(.085,.20,uv.y));
+        float chest = smoothstep(.28,.48,uv.y) * (1.-smoothstep(.58,.72,uv.y));
+        p.x += (isRight-.5) * .026 * lift * heel + .017 * stepPose.y * chest;
+        p.z += .046 * facing * stepPose.y * lateral * chest;
+        p.y += heel * max(.0, -stride) * .024;
         p.z += facing * stride * (${footReach} * leg - 0.105 * arm);
         p.y += 0.104 * lift * leg + 0.019 * abs(stepPose.w) * (1. - leg) + stride * arm * 0.038;
         p.x += 0.014 * stepPose.y * uv.y + arm * stride * 0.018;
@@ -55,6 +130,7 @@ export function createInfantryModel(side, portrait, reverse, stride, capacity) {
         gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.);
       }`,
     fragmentShader: `
+      ${helmetPaintGLSL}
       uniform sampler2D portrait, reverse;
       uniform float facing;
       varying vec2 tex;
@@ -79,6 +155,7 @@ export function createInfantryModel(side, portrait, reverse, stride, capacity) {
           kit = mix(kit, dye * (.26 + value * 2.1), helmet);
           color = mix(color, kit, back * opposite.a);
         }
+        color = paintHelmet(color, tex.y, facing > 0.);
         float light = .87 + .17 * max(0., dot(normalize(normalView), normalize(vec3(-.52,.76,.56))));
         color *= light;
         if (flash <= -1.) {

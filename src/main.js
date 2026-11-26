@@ -2,6 +2,7 @@ import { Battle } from './battle.js';
 import { supplies, lastStage } from './supplies.js';
 import { campaign, chapters } from './campaign.js';
 import { bosses } from './boss-skills.js';
+import { creatureCrowns } from './creature-bosses.js';
 import { makeView } from './view.js';
 import { createAudio } from './audio.js';
 
@@ -89,7 +90,8 @@ for (const chapter of chapters) {
   const title = document.createElement('h3');
   title.textContent = chapter.name;
   const span = document.createElement('span');
-  span.textContent = String(chapter.first).padStart(2, '0') + ' — ' + String(chapter.last).padStart(2, '0');
+  span.textContent =
+    String(chapter.first).padStart(2, '0') + ' — ' + String(chapter.last).padStart(2, '0');
   heading.append(title, span);
   const stops = document.createElement('div');
   stops.className = 'chapter-stages';
@@ -122,7 +124,9 @@ $('stageList').addEventListener('keydown', (e) => {
   if (!Object.prototype.hasOwnProperty.call(steps, e.code) || !e.target.dataset.level) return;
   const next = Math.min(lastStage, Math.max(1, +e.target.dataset.level + steps[e.code]));
   e.preventDefault();
-  $('stageList').querySelector('[data-level="' + next + '"]').focus();
+  $('stageList')
+    .querySelector('[data-level="' + next + '"]')
+    .focus();
 });
 function release() {
   keys.clear();
@@ -218,11 +222,15 @@ function showPanel(which) {
     const win = battle.phase === 'won';
     const seconds = Math.floor(battle.elapsed);
     $('resultKills').textContent = battle.score;
-    $('resultTime').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+    $('resultTime').textContent =
+      Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
     if (win) {
       $('dialogTitle').textContent =
         battle.stage === lastStage ? '全部通关' : `第 ${battle.stage} 关通过`;
-      $('detail').textContent = battle.stage < lastStage ? '下一站 · ' + campaign[battle.stage].name : '小队已完成全部航线。';
+      $('detail').textContent =
+        battle.stage < lastStage
+          ? '下一站 · ' + campaign[battle.stage].name
+          : '小队已完成全部航线。';
     } else {
       const losses = {
         signature: [
@@ -383,6 +391,10 @@ document.addEventListener('visibilitychange', () => {
 let lastCount = -1,
   lastPower = -1,
   lastHP = -1,
+  lastMaxHP = -1,
+  lastBarWidth = -1,
+  entrySide = 1,
+  taggedBoss = null,
   lastProgress = -1;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function updateStat(id, current, previous) {
@@ -442,18 +454,54 @@ function hud() {
     }
   }
   const b = battle.boss;
-  bossBar.hidden = !b.active || b.defeated || view.project(b.x, 0, b.z).y < 3;
+  bossBar.hidden = !b.active || b.defeated || view.project(b.x, 0, b.z).y < 4;
   if (!bossBar.hidden) {
-    if ($('bossName').textContent !== bosses[b.kind].name)
-      $('bossName').textContent = bosses[b.kind].name;
-    const [height, offset] = bosses[b.kind].crown;
-    const p = view.project(b.x, height + b.lift, b.z + offset);
-    bossBar.style.transform = `translate(${p.x.toFixed(1)}px,${Math.max(53, p.y).toFixed(1)}px)`;
-  }
-  if (b.hp !== lastHP) {
-    bossBar.firstElementChild.style.transform = `scaleX(${b.hp / b.maxHp})`;
-    bossBar.lastElementChild.textContent = Math.ceil(b.hp);
-    lastHP = b.hp;
+    const definition = bosses[b.kind];
+    const [height, offset] = definition.crown;
+    const depth = b.z + offset * Math.cos(b.yaw);
+    const crown = view.project(b.x, height + b.lift, depth);
+    if (mode !== 'ai' && creatureCrowns[b.kind]) {
+      crown.y = Infinity;
+      for (const [peak, localZ, span] of creatureCrowns[b.kind]) {
+        const z = b.z + localZ * Math.cos(b.yaw) - span * Math.abs(Math.sin(b.yaw));
+        crown.y = Math.min(crown.y, view.project(b.x, peak + b.lift, z).y - 9);
+      }
+    }
+    const unit = view.project(b.x + 1, height + b.lift, depth).x - crown.x;
+    const width = Math.round(Math.min(stage.clientWidth * 0.28, 114, Math.max(66, unit * 2.55)));
+    if (lastBarWidth !== width) {
+      bossBar.style.setProperty('--hp-width', width + 'px');
+      lastBarWidth = width;
+    }
+    if ($('bossName').textContent !== definition.name) $('bossName').textContent = definition.name;
+    // On entry the crown is still behind the HUD. Carry the plate beside the silhouette
+    // until it can sit above the head, then follow its exact projected jump and turn.
+    const toolbar = $('level').closest('.hud');
+    const top = toolbar.offsetTop + toolbar.offsetHeight + 22;
+    const sideAmount = 1 - Math.min(1, Math.max(0, (crown.y + 4 - top) / 27));
+    if (taggedBoss !== b) {
+      entrySide = crown.x < stage.clientWidth / 2 ? 1 : -1;
+      taggedBoss = b;
+    }
+    const extent = width / 2 + 6;
+    const x = Math.max(
+      extent,
+      Math.min(
+        stage.clientWidth - extent,
+        crown.x + entrySide * sideAmount * (width / 2 + unit * 1.7),
+      ),
+    );
+    const y = Math.max(top, crown.y + 4);
+    bossBar.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px) translate(-50%, -100%)`;
+    const hp = Math.ceil(b.hp);
+    if (hp !== lastHP || b.maxHp !== lastMaxHP) {
+      bossBar.firstElementChild.style.transform = `scaleX(${b.hp / b.maxHp})`;
+      bossBar.lastElementChild.textContent = hp;
+      bossBar.setAttribute('aria-valuenow', String(hp));
+      bossBar.setAttribute('aria-valuemax', String(b.maxHp));
+      lastHP = hp;
+      lastMaxHP = b.maxHp;
+    }
   }
   if (battle.playing && !panel) {
     if (!toldWall && battle.wall.hp > 0 && battle.distance >= 10 && battle.wall.z < 0) {
@@ -463,7 +511,7 @@ function hud() {
     if (battle.wall.hp <= 0 && tip.textContent === '击碎硬墙，或向左避开') tip.hidden = true;
     if (!bossBar.hidden && !toldBoss) {
       toldBoss = true;
-      message('对准 Boss 开火，跳起时避开落点', 2.2);
+      message(bosses[b.kind].name + ' · 重炮直击，避开落点', 2.2);
     }
     if (b.defeated && !toldClear && b.defeatAge >= 0.92) {
       toldClear = true;

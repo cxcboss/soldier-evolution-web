@@ -24,22 +24,22 @@ const marks = {
 };
 const metal = {
   blue: {
-    top: '#226b86',
-    bottom: '#103754',
-    rim: '#67cbcb',
-    light: '#e1ffef',
-    ink: '#f7fcf2',
-    shade: '#082a3f',
-    badge: '#147f94',
+    top: '#36acf9',
+    bottom: '#0574e4',
+    rim: '#81d7ff',
+    light: '#f6fcff',
+    ink: '#ffffff',
+    shade: '#1150a9',
+    badge: '#1678d2',
   },
   gold: {
-    top: '#ffce66',
-    bottom: '#eca341',
-    rim: '#ffdd7e',
-    light: '#fff5c5',
-    ink: '#332b28',
-    shade: '#744722',
-    badge: '#93501d',
+    top: '#ffe336',
+    bottom: '#efbf0c',
+    rim: '#ffeb79',
+    light: '#fff9ce',
+    ink: '#ffffff',
+    shade: '#916808',
+    badge: '#c78b0d',
   },
 };
 function polygon(ctx, points, fill) {
@@ -106,8 +106,8 @@ export function makeSignTexture(type) {
     ctx,
     [
       [0, 0],
-      [200, 0],
-      [153, 196],
+      [143, 0],
+      [99, 196],
       [0, 196],
     ],
     p.shade,
@@ -144,17 +144,19 @@ export function makeSignTexture(type) {
       ],
       p.rim,
     );
-  badge(ctx, type, 92, 96, 144);
+  badge(ctx, type, 69, 96, 100);
   const reward = supplies[type];
-  const size = reward.count ? 145 : 113;
+  const size = reward.count ? 150 : 125;
   ctx.font = '900 ' + size + 'px "Arial Black", "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
   const text = ctx.measureText(reward.label);
   const cy = 96 + (text.actualBoundingBoxAscent - text.actualBoundingBoxDescent) / 2;
-  ctx.translate(381, cy);
-  ctx.scale(Math.min(1, 376 / text.width), 1);
-  ctx.fillStyle = supplies[type].tone === 'gold' ? '#ffda7d' : '#082d47';
-  ctx.fillText(reward.label, 0, 4);
+  ctx.translate(357, cy);
+  ctx.scale(Math.min(1, 412 / text.width), 1);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = reward.count ? 14 : 11;
+  ctx.strokeStyle = '#172d42';
+  ctx.strokeText(reward.label, 0, 2);
   ctx.fillStyle = p.ink;
   ctx.fillText(reward.label, 0, 0);
   return texture(canvas);

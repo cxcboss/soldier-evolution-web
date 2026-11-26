@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { coatModel, createPaintedBoss, createSculptedPaint } from './creature-paint.js';
+import { coatModel, createSculptedPaint } from './creature-paint.js';
 import { block, part, combine, strut } from './scenery-mesh.js';
 
 const V = (a) => new THREE.Vector3(...a);
@@ -7,8 +7,8 @@ const E = (x = 0, y = 0, z = 0) => new THREE.Euler(x, y, z);
 const TAU = Math.PI * 2;
 const shell = new THREE.MeshPhongMaterial({
   vertexColors: true,
-  shininess: 35,
-  specular: 0x635a56,
+  shininess: 51,
+  specular: 0x706765,
   side: THREE.DoubleSide,
 });
 const luminous = new THREE.MeshBasicMaterial({
@@ -17,7 +17,9 @@ const luminous = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
 });
 const ov = (c, x, y, z, a, b, d, rot = null) => {
-  const g = new THREE.SphereGeometry(1, 28, 16);
+  const radius = Math.max(a, b, d);
+  const slices = radius < 0.11 ? 10 : radius < 0.25 ? 14 : radius < 0.56 ? 20 : 28;
+  const g = new THREE.SphereGeometry(1, slices, Math.ceil(slices * 0.55));
   g.scale(a, b, d);
   return part(g, c, x, y, z, rot);
 };
@@ -91,35 +93,136 @@ function membrane(points, colors) {
   g.computeVertexNormals();
   return g;
 }
+// A crowned, bevel-edged plate. Its enamel, chamfer and exposed undercut share one draw.
+function scute(color, rim, x, y, z, width, rise, length, rotation = null) {
+  const outline = [
+    [0, 1],
+    [0.66, 0.64],
+    [1, 0.08],
+    [0.82, -0.53],
+    [0, -1],
+    [-0.82, -0.53],
+    [-1, 0.08],
+    [-0.66, 0.64],
+  ];
+  const foot = outline.map(([dx, dz]) => [dx * width, 0, dz * length]);
+  const edge = outline.map(([dx, dz]) => [dx * width, rise * 0.24, dz * length]);
+  const shoulder = outline.map(([dx, dz]) => [dx * width * 0.86, rise * 0.53, dz * length * 0.87]);
+  const top = [0, rise, length * 0.06];
+  const vertices = [],
+    colors = [];
+  const faceColor = new THREE.Color(color),
+    edgeColor = new THREE.Color(rim);
+  const shadow = faceColor.clone().multiplyScalar(0.48);
+  function tri(a, b, c, tint) {
+    vertices.push(...a, ...c, ...b);
+    for (let k = 0; k < 3; k++) colors.push(tint.r, tint.g, tint.b);
+  }
+  for (let i = 0; i < outline.length; i++) {
+    const j = (i + 1) % outline.length;
+    tri(foot[i], edge[i], foot[j], shadow);
+    tri(foot[j], edge[i], edge[j], shadow);
+    tri(edge[i], shoulder[i], edge[j], edgeColor);
+    tri(edge[j], shoulder[i], shoulder[j], edgeColor);
+    tri(shoulder[i], top, shoulder[j], faceColor);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  if (rotation) geo.applyQuaternion(new THREE.Quaternion().setFromEuler(rotation));
+  return geo.translate(x, y, z);
+}
+// Translucent-looking flight skin sags between the fingers and pulls in at the trailing edge.
+function flightPanel(a, b, side) {
+  const steps = 5,
+    vertices = [],
+    colors = [],
+    faces = [];
+  const dark = new THREE.Color('#307fa8'),
+    bright = new THREE.Color('#94ddec');
+  for (let row = 0; row <= steps; row++)
+    for (let col = 0; col <= steps; col++) {
+      const t = row / steps,
+        s = col / steps,
+        bow = Math.sin(Math.PI * s);
+      const reach = t * (1 - 0.25 * bow * t * t);
+      vertices.push(
+        THREE.MathUtils.lerp(a[0], b[0], s) * reach,
+        THREE.MathUtils.lerp(a[1], b[1], s) * reach - 0.19 * bow * t + 0.06 * Math.sin(Math.PI * t),
+        THREE.MathUtils.lerp(a[2], b[2], s) * reach,
+      );
+      const c = dark.clone().lerp(bright, 0.22 + 0.51 * (1 - bow) + 0.17 * t);
+      colors.push(c.r, c.g, c.b);
+      if (row && col) {
+        const d = row * (steps + 1) + col,
+          c = d - 1,
+          b = d - (steps + 1),
+          a = b - 1;
+        if (side < 0) faces.push(a, d, b, a, c, d);
+        else faces.push(a, b, d, a, d, c);
+      }
+    }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(faces);
+  geo.computeVertexNormals();
+  const flat = geo.toNonIndexed();
+  geo.dispose();
+  return flat;
+}
+
 function gem(c, x, y, z, r, h, tilt = 0) {
   const g = new THREE.CylinderGeometry(0.035, r, h, 5, 1);
   g.translate(0, h / 2, 0);
   return part(g, c, x, y, z, E(0, 0.2, tilt));
 }
 function rig() {
-  const groups = [];
+  const root = new THREE.Group();
+  const joints = [];
   function joint(parent, x = 0, y = 0, z = 0) {
-    const g = new THREE.Group();
-    g.position.set(x, y, z);
-    parent?.add(g);
-    g.userData.geometry = [];
-    g.userData.light = [];
-    groups.push(g);
-    return g;
+    const bone = new THREE.Bone();
+    bone.position.set(x, y, z);
+    parent.add(bone);
+    bone.userData.geometry = [];
+    bone.userData.light = [];
+    joints.push(bone);
+    return bone;
   }
-  const root = joint(null);
-  const add = (g, ...geo) => g.userData.geometry.push(...geo);
-  const glow = (g, ...geo) => g.userData.light.push(...geo);
+  const add = (bone, ...geo) => bone.userData.geometry.push(...geo);
+  const glow = (bone, ...geo) => bone.userData.light.push(...geo);
   function finish() {
-    for (const g of groups) {
-      for (const [k, mat] of [
-        ['geometry', shell],
-        ['light', luminous],
-      ]) {
-        const pieces = g.userData[k];
-        if (pieces.length) g.add(new THREE.Mesh(combine(pieces), mat));
-        delete g.userData[k];
-      }
+    // Store each rigid shell/wing/claw in bind space once. All joints then share two
+    // mobile draw calls (enamel and light) regardless of the number of moving legs.
+    root.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton(joints);
+    for (const [channel, material] of [
+      ['geometry', shell],
+      ['light', luminous],
+    ]) {
+      const pieces = [];
+      joints.forEach((bone, index) => {
+        const local = bone.userData[channel];
+        delete bone.userData[channel];
+        if (!local.length) return;
+        const geometry = combine(local).applyMatrix4(bone.matrixWorld);
+        const count = geometry.getAttribute('position').count;
+        const indices = new Uint8Array(count * 4),
+          weights = new Uint8Array(count * 4);
+        for (let i = 0; i < indices.length; i += 4) {
+          indices[i] = index;
+          weights[i] = 255;
+        }
+        geometry.setAttribute('skinIndex', new THREE.Uint8BufferAttribute(indices, 4));
+        geometry.setAttribute('skinWeight', new THREE.Uint8BufferAttribute(weights, 4, true));
+        pieces.push(geometry);
+      });
+      if (!pieces.length) continue;
+      const mesh = new THREE.SkinnedMesh(combine(pieces), material);
+      root.add(mesh);
+      mesh.bind(skeleton, new THREE.Matrix4());
+      mesh.frustumCulled = false;
     }
   }
   return { root, joint, add, glow, finish };
@@ -166,6 +269,30 @@ function legSet(r, body, attachment, points, palette, mechanical = false) {
     tip = toe.map((n, i) => n - knee[i]);
   r.add(shank, horn(base, [[0, 0, 0], end, tip], [0.13, 0.092, 0.009], 12));
   if (mechanical) {
+    const mid = end.map((v) => v * 0.56);
+    r.add(
+      shank,
+      horn(
+        upper,
+        [end.map((v) => v * 0.09), mid, end.map((v) => v * 0.81)],
+        [0.145, 0.17, 0.105],
+        10,
+      ),
+      strut(
+        end.map((v) => v * 0.25),
+        end.map((v) => v * 0.32),
+        0.172,
+        trim,
+        12,
+      ),
+      strut(
+        end.map((v) => v * 0.64),
+        end.map((v) => v * 0.69),
+        0.143,
+        trim,
+        12,
+      ),
+    );
     r.add(g, strut([0, 0.09, 0.1], [knee[0], knee[1] + 0.085, knee[2] + 0.08], 0.041, '#e9b277'));
     r.add(
       shank,
@@ -373,7 +500,141 @@ function crab(r) {
       0.034,
     ),
   );
+  // Branching coral is part of the living shell. Twin cut-water brows protect the eye stalks.
+  for (const side of [-1, 1]) {
+    for (let i = 0; i < 2; i++) {
+      const x = side * (0.36 + i * 0.24),
+        z = -0.54 + i * 0.18;
+      const top = [x + side * 0.2, 1.57 - i * 0.13, z - 0.11];
+      add(
+        body,
+        horn(
+          '#e77648',
+          [
+            [x, 0.84, z],
+            [x + side * 0.03, 1.09, z],
+            [x + side * 0.17, 1.31 - i * 0.06, z - 0.04],
+            top,
+          ],
+          [0.12, 0.092, 0.061, 0.022],
+          10,
+        ),
+        horn(
+          '#ff9c5e',
+          [
+            [x + side * 0.09, 1.19, z - 0.02],
+            [x - side * 0.08, 1.35, z + 0.025],
+            [x - side * 0.06, 1.47, z + 0.055],
+          ],
+          [0.062, 0.04, 0.011],
+          9,
+        ),
+        horn(
+          '#f59853',
+          [
+            [x + side * 0.15, 1.28 - i * 0.04, z - 0.04],
+            [x + side * 0.29, 1.34, z - 0.11],
+            [x + side * 0.33, 1.46, z - 0.16],
+          ],
+          [0.055, 0.035, 0.01],
+          9,
+        ),
+      );
+    }
+    add(
+      body,
+      scute(
+        '#126d72',
+        '#91cba9',
+        side * 0.48,
+        0.9,
+        0.7,
+        0.24,
+        0.1,
+        0.23,
+        E(0.15, side * 0.12, -side * 0.36),
+      ),
+    );
+    add(
+      jaw,
+      horn(
+        '#efc69c',
+        [
+          [side * 0.26, 0.13, 0.15],
+          [side * 0.37, 0.03, 0.38],
+          [side * 0.2, -0.13, 0.44],
+        ],
+        [0.115, 0.071, 0.004],
+        12,
+      ),
+    );
+  }
+  for (const side of [-1, 1])
+    add(
+      body,
+      horn(
+        '#195a5c',
+        [
+          [side * 0.27, 0.86, 0.9],
+          [side * 0.47, 0.99, 0.865],
+          [side * 0.68, 1.02, 0.73],
+        ],
+        [0.052, 0.116, 0.033],
+        12,
+      ),
+    );
+  add(jaw, ov('#362a2f', 0, 0.07, 0.27, 0.28, 0.12, 0.13));
+  teeth(r, jaw, 0.36, 0.39, 0.11, 5);
+  // The raised shield and deeply notched crusher distinguish it from the thinner cutting claw.
+  add(body, scute('#209f95', '#98dfbb', 0, 0.86, -0.03, 0.7, 0.27, 0.82));
+  for (const side of [-1, 1])
+    add(
+      body,
+      scute(
+        '#197c7f',
+        '#7ecaaa',
+        side * 0.79,
+        0.67,
+        -0.18,
+        0.39,
+        0.23,
+        0.55,
+        E(0.08, side * 0.28, -side * 0.35),
+      ),
+    );
+  for (const { palm, finger, s } of claws) {
+    if (s < 0) palm.scale.set(1.24, 1.28, 1.15);
+    add(palm, scute('#fb7c3d', '#ffd27a', 0, 0.27, 0.2, 0.33, 0.13, 0.43, E(0.04, 0, -s * 0.16)));
+    for (let i = 0; i < 3; i++) {
+      const z = 0.44 + i * 0.17;
+      add(
+        palm,
+        horn(
+          '#ffda8e',
+          [
+            [s * 0.23, 0.19, z],
+            [s * 0.09, 0.16, z + 0.04],
+          ],
+          [0.078, 0.007],
+          9,
+        ),
+      );
+      add(
+        finger,
+        horn(
+          '#f6c583',
+          [
+            [-s * 0.13, 0.13, z - 0.23],
+            [-s * 0.02, 0.14, z - 0.15],
+          ],
+          [0.065, 0.004],
+          9,
+        ),
+      );
+    }
+  }
   return (q) => {
+    jaw.rotation.x = 0.07 + 0.12 * Math.sin(q.time * 3.2) + 0.28 * q.cast - 0.18 * q.fire;
     body.position.y = 1.04 + q.bob * 0.08 - q.down * 0.29;
     body.rotation.z = q.stride * 0.044 + q.down * 0.18;
     body.rotation.x = -q.cast * 0.14;
@@ -384,8 +645,8 @@ function crab(r) {
     });
     claws.forEach(({ arm, palm, finger, s }) => {
       arm.rotation.x = -0.14 + 0.2 * q.stride * s - 0.55 * q.cast - 0.58 * q.air + 0.5 * q.down;
-      palm.rotation.y = s * (0.43 - 0.31 * q.cast);
-      finger.rotation.y = s * (0.17 + 0.37 * q.cast + 0.09 * Math.sin(q.time * 3));
+      palm.rotation.y = s * (0.1 - 0.26 * q.cast + 0.26 * q.fire);
+      finger.rotation.y = s * (-0.28 - 0.32 * q.cast + 0.64 * q.fire + 0.09 * Math.sin(q.time * 3));
     });
   };
 }
@@ -432,11 +693,11 @@ function rhino(r) {
       ivory,
       [
         [0, 0.12, 0.88],
-        [0.08, 0.43, 1.13],
-        [0.23, 0.82, 1.37],
-        [0.35, 1.19, 1.4],
+        [0.04, 0.43, 1.17],
+        [0.22, 0.86, 1.47],
+        [0.46, 1.48, 1.35],
       ],
-      [0.245, 0.181, 0.078, 0.004],
+      [0.3, 0.22, 0.115, 0.004],
     ),
     horn(
       '#d6ae76',
@@ -496,7 +757,87 @@ function rhino(r) {
     ),
     ov('#342f3a', 0.12, -0.47, -0.48, 0.08, 0.13, 0.085),
   );
+  for (let i = 0; i < 3; i++) {
+    const z = 0.38 - i * 0.48,
+      scale = 1 - i * 0.12;
+    add(body, scute('#cf9440', '#ffe093', 0, 1.0 - i * 0.1, z, scale * 0.44, 0.14, 0.36));
+  }
+  for (let i = 0; i < 3; i++) {
+    const z = 0.31 - i * 0.48,
+      w = 1 - i * 0.12;
+    for (const side of [-1, 1])
+      add(
+        body,
+        pipe(
+          '#795533',
+          [
+            [side * 0.24 * w, 1.02 - i * 0.09, z + 0.12],
+            [side * 0.59 * w, 0.91 - i * 0.1, z + 0.24],
+            [side * 0.9 * w, 0.54 - i * 0.1, z + 0.16],
+          ],
+          0.026,
+        ),
+      );
+  }
+  eyes(r, head, 0.488, 0.295, 0.8, '#e7a73e');
+  add(head, scute('#c28b3d', '#ffd46b', 0, 0.58, 0.34, 0.46, 0.18, 0.46, E(0.35)));
+  for (const side of [-1, 1]) {
+    add(
+      body,
+      scute(
+        '#ba7827',
+        '#ffd473',
+        side * 0.71,
+        0.7,
+        0.17,
+        0.48,
+        0.25,
+        0.69,
+        E(0.03, side * 0.1, -side * 0.61),
+      ),
+    );
+    add(
+      head,
+      scute(
+        '#935b32',
+        '#ffd181',
+        side * 0.51,
+        0.2,
+        0.44,
+        0.26,
+        0.12,
+        0.42,
+        E(0.38, side * 0.18, -side * 0.55),
+      ),
+    );
+    add(
+      head,
+      pipe(
+        '#ecd287',
+        [
+          [side * 0.08, 0.16, 0.89],
+          [side * 0.14, 0.19, 1.0],
+          [side * 0.14, 0.25, 1.08],
+        ],
+        0.035,
+      ),
+    );
+    for (let i = 0; i < 3; i++)
+      add(
+        body,
+        ov(
+          '#69484b',
+          side * (0.63 + i * 0.09),
+          0.96 - i * 0.102,
+          0.46 - i * 0.03,
+          0.05,
+          0.042,
+          0.052,
+        ),
+      );
+  }
   return (q) => {
+    head.rotation.y = 0.065 * q.stride - 0.1 * Math.sin(q.time * 3) * q.cast;
     body.position.y = 1.24 + 0.1 * q.bob - 0.26 * q.cast - 0.35 * q.down;
     body.rotation.z = 0.06 * q.stride + 0.25 * q.down;
     head.rotation.x = 0.025 + 0.18 * q.stride + 0.48 * q.cast - 0.47 * q.fire + 0.2 * q.down;
@@ -512,13 +853,21 @@ function wyrm(r) {
   const { root, joint, add, glow } = r,
     segments = [],
     nodes = [
-      [0.25, 2.04, 0.83, 0.71],
-      [0.45, 1.52, 0.17, 0.77],
-      [0.28, 1.05, -0.46, 0.68],
-      [-0.32, 0.69, -0.91, 0.57],
-      [-0.84, 0.53, -1.15, 0.48],
-      [-1.22, 0.48, -0.87, 0.32],
-      [-1.39, 0.57, -0.39, 0.2],
+      [-0.32, 1.76, 0.88, 0.69],
+      [-0.07, 1.14, 0.63, 0.75],
+      [0.51, 0.63, 0.49, 0.73],
+      [0.91, 0.48, -0.12, 0.68],
+      [0.72, 0.47, -0.75, 0.63],
+      [0.19, 0.49, -1.1, 0.56],
+      [-0.4, 0.52, -1.12, 0.52],
+      [-0.85, 0.58, -0.76, 0.46],
+      [-0.99, 0.77, -0.27, 0.4],
+      [-0.85, 1.16, -0.14, 0.36],
+      [-0.64, 1.59, -0.35, 0.31],
+      [-0.3, 1.95, -0.62, 0.25],
+      [0.14, 2.07, -0.66, 0.19],
+      [0.46, 1.95, -0.64, 0.14],
+      [0.54, 1.72, -0.63, 0.078],
     ];
   for (let i = 0; i < nodes.length; i++) {
     const [x, y, z, rad] = nodes[i],
@@ -545,6 +894,32 @@ function wyrm(r) {
       glow(g, ov('#edacff', s * rad * 0.72, rad * 0.5, 0.075, rad * 0.22, rad * 0.043, rad * 0.09));
     }
     add(g, gem('#e5b0ff', 0, rad * 0.62, -0.14, rad * 0.23, rad * 0.67, -0.12));
+    add(
+      g,
+      scute(
+        i % 2 ? '#9f62cb' : '#8251b7',
+        '#d39ae8',
+        0,
+        rad * 0.61,
+        0.025,
+        rad * 0.82,
+        rad * 0.32,
+        rad * 0.69,
+      ),
+    );
+    if (i + 1 < nodes.length) {
+      const [nx, ny, nz, nr] = nodes[i + 1],
+        link = [nx - x, ny - y, nz - z];
+      add(
+        g,
+        horn(
+          i % 2 ? '#6e498c' : '#8453a4',
+          [[0, 0, 0], link.map((v) => v * 0.55), link],
+          [rad * 0.79, (rad + nr) * 0.44, nr * 0.78],
+          16,
+        ),
+      );
+    }
     segments.push(g);
   }
   const head = joint(segments[0], 0, 0.37, 0.34),
@@ -606,14 +981,54 @@ function wyrm(r) {
     );
   }
   eyes(r, head, 0.39, 0.235, 0.51, '#a3ffe6');
+  for (const side of [-1, 1]) {
+    add(
+      head,
+      gem('#86bdf3', side * 0.43, 0.43, -0.11, 0.16, 0.62, -side * 0.45),
+      gem('#d6b8ff', side * 0.56, 0.36, -0.21, 0.12, 0.41, -side * 0.67),
+    );
+  }
+  add(jaw, scute('#713f83', '#e19acd', 0, -0.16, 0.34, 0.44, 0.12, 0.34));
+  add(jaw, ov('#512c4b', 0, -0.061, 0.4, 0.25, 0.05, 0.18));
+  for (const side of [-1, 1]) {
+    add(
+      head,
+      horn(
+        '#ffe8c5',
+        [
+          [side * 0.36, 0.08, 0.61],
+          [side * 0.37, -0.1, 0.81],
+          [side * 0.3, -0.28, 0.87],
+        ],
+        [0.092, 0.06, 0.006],
+        12,
+      ),
+    );
+    add(
+      head,
+      scute(
+        '#754593',
+        '#cc8dee',
+        side * 0.38,
+        0.35,
+        0.4,
+        0.25,
+        0.1,
+        0.25,
+        E(0.22, -side * 0.22, -side * 0.44),
+      ),
+    );
+  }
   return (q) => {
     segments.forEach((g, i) => {
       const [, y, z] = nodes[i];
-      g.position.x = nodes[i][0] + Math.sin(q.beat * 0.68 - i * 0.71) * (0.13 + i * 0.044) * q.walk;
+      g.position.x =
+        nodes[i][0] +
+        Math.sin(q.beat * 0.68 - i * 0.71) * (0.075 + Math.min(4, i) * 0.026) * q.walk;
       g.position.y =
         y * (1 - 0.57 * q.down - 0.36 * q.cast) +
         Math.sin(q.beat * 0.63 - i * 0.73) * 0.074 * q.walk;
-      g.position.z = z + i * 0.035 * q.cast;
+      g.position.z = z + i * 0.035 * q.cast + Math.max(0, 1 - i * 0.2) * 0.36 * q.fire;
       g.rotation.z = 0.12 * Math.sin(q.beat * 0.7 - i * 0.61) * q.walk + 0.27 * q.down;
     });
     head.rotation.x = -0.22 * q.cast - 0.36 * q.fire + 0.1 * Math.sin(q.beat) * q.walk;
@@ -665,44 +1080,41 @@ function dragon(r) {
       ),
     );
     const arm = joint(body, s * 0.39, 0.32, 0.04),
-      elbow = joint(arm, s * 0.75, 0.4, -0.12);
+      elbow = joint(arm, s * 0.76, 0.72, -0.26);
     add(
       arm,
       horn(
         '#5296b7',
         [
           [0, 0, 0],
-          [s * 0.38, 0.16, 0.02],
-          [s * 0.76, 0.39, -0.12],
+          [s * 0.38, 0.26, -0.08],
+          [s * 0.76, 0.72, -0.26],
         ],
         [0.18, 0.12, 0.095],
       ),
       membrane(
         [
           [0, 0, 0],
-          [s * 0.76, 0.4, -0.12],
-          [s * 0.68, 0.1, -0.93],
-          [s * 0.14, -0.08, -0.76],
+          [s * 0.76, 0.72, -0.26],
+          [s * 0.82, 0.08, 0.74],
+          [s * 0.14, -0.08, 0.47],
         ],
         ['#4a9fc7', '#8ddfe5', '#3b81b0', '#306d9c'],
       ),
     );
     const fingers = [
-      [s * 1.13, 0.38, -0.3],
-      [s * 1.23, 0.08, -0.72],
-      [s * 0.97, -0.11, -1.0],
-      [s * 0.4, -0.23, -0.99],
+      [s * 0.98, 0.33, -0.32],
+      [s * 1.2, -0.005, 0.18],
+      [s * 1.16, -0.36, 0.77],
+      [s * 0.78, -0.62, 1.05],
+      [s * 0.4, -0.66, 0.98],
     ];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < fingers.length - 1; i++) {
       const a = fingers[i],
-        b = fingers[i + 1],
-        mid = a.map((v, j) => (v + b[j]) * 0.5);
-      mid[0] *= 0.91;
-      mid[1] += 0.045;
-      mid[2] += 0.12;
+        b = fingers[i + 1];
       add(
         elbow,
-        membrane([[0, 0, 0], a, mid, b], ['#9ee6e3', '#72c6df', '#348bb9', '#81cfe4']),
+        flightPanel(a, b, s),
         horn(
           '#d0ecdc',
           [[0, 0, 0], [a[0] * 0.56, a[1] * 0.58 + 0.05, a[2] * 0.47], a],
@@ -712,7 +1124,7 @@ function dragon(r) {
     }
     add(
       elbow,
-      horn('#c5e8df', [[0, 0, 0], fingers[3]], [0.046, 0.008]),
+      horn('#c5e8df', [[0, 0, 0], fingers[fingers.length - 1]], [0.046, 0.008]),
       horn(
         '#b2e8e2',
         [
@@ -787,6 +1199,111 @@ function dragon(r) {
     tail.push(g);
     parent = g;
   }
+  for (let i = 0; i < 4; i++) {
+    const z = 0.47 - i * 0.28;
+    add(
+      body,
+      scute(i % 2 ? '#68b4d3' : '#559fc9', '#d1eef0', 0, 0.48, z, 0.39 - i * 0.035, 0.13, 0.26),
+    );
+  }
+  add(head, scute('#4085a8', '#a9dce8', 0, 0.15, 0.52, 0.28, 0.12, 0.4, E(0.17)));
+  for (const side of [-1, 1]) {
+    add(
+      head,
+      horn(
+        '#316785',
+        [
+          [side * 0.16, 0.22, 0.63],
+          [side * 0.34, 0.29, 0.52],
+          [side * 0.48, 0.36, 0.22],
+        ],
+        [0.06, 0.1, 0.012],
+        11,
+      ),
+      horn(
+        '#f6f2df',
+        [
+          [side * 0.25, -0.045, 0.72],
+          [side * 0.28, -0.17, 0.85],
+          [side * 0.25, -0.28, 0.86],
+        ],
+        [0.066, 0.039, 0.005],
+        10,
+      ),
+    );
+  }
+  add(head, gem('#b8eef8', 0, 0.38, 0.1, 0.14, 0.44));
+  const fan = tail[tail.length - 1];
+  for (const side of [-1, 1]) {
+    add(
+      fan,
+      membrane(
+        [
+          [0, 0.03, -0.11],
+          [side * 0.29, 0.12, -0.32],
+          [side * 0.35, 0.1, -0.63],
+          [0, -0.02, -0.49],
+        ],
+        ['#bbeffd', '#2689ae', '#b2eff7', '#246c98'],
+      ),
+    );
+    add(
+      fan,
+      horn(
+        '#daeff3',
+        [
+          [0, 0.05, -0.1],
+          [side * 0.22, 0.12, -0.33],
+          [side * 0.35, 0.1, -0.63],
+        ],
+        [0.06, 0.035, 0.006],
+        10,
+      ),
+    );
+    add(
+      head,
+      scute(
+        '#57a6ca',
+        '#b4edf1',
+        side * 0.31,
+        0.27,
+        0.12,
+        0.2,
+        0.105,
+        0.31,
+        E(0.16, 0, -side * 0.25),
+      ),
+    );
+  }
+  for (const { arm, elbow, s } of wings) {
+    add(
+      arm,
+      scute(
+        '#3f8fba',
+        '#d7f1e8',
+        s * 0.39,
+        0.27,
+        -0.05,
+        0.22,
+        0.1,
+        0.43,
+        E(-0.03, s * 0.94, -s * 0.28),
+      ),
+    );
+    add(
+      elbow,
+      horn(
+        '#c1eafa',
+        [
+          [0, 0.04, 0.02],
+          [s * 0.22, 0.22, 0.18],
+          [s * 0.32, 0.33, 0.11],
+        ],
+        [0.1, 0.055, 0.005],
+        10,
+      ),
+    );
+  }
   for (let j = 0; j < 4; j++) add(body, gem('#d5ede7', 0, 0.5, 0.41 - j * 0.31, 0.084, 0.23));
   return (q) => {
     const flap = Math.sin(q.time * 4.9);
@@ -796,6 +1313,7 @@ function dragon(r) {
     lower.rotation.x = 0.08 + 0.36 * q.cast + 0.4 * q.fire;
     for (const { arm, elbow, s } of wings) {
       arm.rotation.z = s * (0.06 + 0.32 * flap * (1 - q.down) + 0.39 * q.cast - 0.65 * q.down);
+      elbow.rotation.z = s * (0.21 * Math.sin(q.time * 4.9 - 0.85) * (1 - q.down) - 0.18 * q.fire);
       elbow.rotation.y = s * (0.12 + 0.12 * Math.sin(q.time * 4.9 - 0.6) + 0.7 * q.down);
     }
     for (const { leg, s, z } of legs)
@@ -919,7 +1437,40 @@ function furnace(r) {
         ),
       );
   }
+  for (const side of [-1, 1]) add(iris, bx(iron, side * 0.142, 0, 0.37, 0.066, 0.46, 0.06, 0.023));
+  glow(iris, ov('#ffe295', 0, 0, 0.391, 0.061, 0.236, 0.034));
+  const turbine = joint(body, 0, 1.11, -0.22);
+  add(turbine, cy(bronze, 0, 0.01, 0, 0.094, 0.116, 0.06));
+  for (let i = 0; i < 6; i++) {
+    const angle = (i * TAU) / 6;
+    add(
+      turbine,
+      scute(
+        '#5b6970',
+        '#dda064',
+        0.21 * Math.sin(angle),
+        0,
+        0.21 * Math.cos(angle),
+        0.085,
+        0.042,
+        0.17,
+        E(0, angle + 0.61, 0.13),
+      ),
+    );
+  }
+  for (const { g, s } of guns) {
+    for (let i = 0; i < 3; i++)
+      add(
+        g,
+        ring('#be8451', 0, 0.39 + i * 0.083, 0.04 + i * 0.022, 0.253, 0.018, E(Math.PI / 2 + 0.26)),
+      );
+    add(
+      body,
+      scute('#a64b36', '#d8944f', s * 0.7, 0.65, 0.43, 0.4, 0.17, 0.4, E(0.05, s * 0.2, -s * 0.42)),
+    );
+  }
   return (q) => {
+    turbine.rotation.y = q.time * 2.8 + q.cast * 1.2 + q.fire * 0.7;
     body.position.y = 1.14 + 0.066 * q.bob - 0.15 * q.cast - 0.42 * q.down;
     body.rotation.z = 0.042 * q.stride + 0.21 * q.down;
     iris.rotation.z = 0.14 * q.time + 0.67 * q.cast;
@@ -929,12 +1480,33 @@ function furnace(r) {
       shank.rotation.z = s * (0.25 * Math.max(0, Math.cos(a)) * q.walk + 0.36 * q.down);
     });
     guns.forEach(({ g, s }) => {
-      g.rotation.x = 0.17 + 0.4 * q.cast - 0.25 * q.fire;
+      g.rotation.x = 0.22 + 0.54 * q.cast - 0.34 * q.fire;
       g.rotation.z = s * (0.18 + 0.12 * q.down);
       g.position.y = 0.56 - 0.14 * q.fire;
     });
   };
 }
+// High points of the moving sculpts in road space: height, depth, half-span.
+export const creatureCrowns = {
+  diver: [[2.86, -0.93, 0.74]],
+  warden: [
+    [2.85, -0.79, 0.52],
+    [3.5, 2.1, 0.45],
+  ],
+  drill: [
+    [3.18, 0.69, 0.56],
+    [2.38, -0.83, 0.54],
+  ],
+  kestrel: [
+    [3.6, -0.8, 1.85],
+    [3.3, 0.35, 0.44],
+  ],
+  engine: [
+    [2.77, -0.49, 0.8],
+    [2.29, -1.2, 0.44],
+  ],
+};
+const creatureScale = { diver: 1.08, warden: 1.19, drill: 1.03, kestrel: 1.05, engine: 1.09 };
 const sculpt = { diver: crab, warden: rhino, drill: wyrm, kestrel: dragon, engine: furnace };
 export function createCreatureBosses(parent, paint) {
   const cache = new Map();
@@ -943,44 +1515,42 @@ export function createCreatureBosses(parent, paint) {
     if (current !== kind) {
       const previous = cache.get(current);
       if (previous) {
-        previous.root.visible = false;
-        if (previous.volume) previous.volume.mesh.visible = previous.portrait.mesh.visible = false;
+        if (previous.root) previous.root.visible = false;
+        if (previous.portrait) previous.portrait.mesh.visible = false;
       }
-      if (sculpt[kind] && !cache.has(kind)) {
-        const r = rig(),
-          sample = sculpt[kind](r);
-        r.finish();
-        parent.add(r.root);
-        cache.set(kind, { root: r.root, sample });
-      }
+      if (sculpt[kind] && !cache.has(kind)) cache.set(kind, {});
       current = kind;
     }
     const active = cache.get(kind);
     if (!active) return false;
     const texture = paint.get(kind);
-    if (!active.volume && texture) {
-      coatModel(active.root, texture, shell);
-      active.volume = createSculptedPaint(kind, texture);
-      active.portrait = createPaintedBoss(kind, texture);
-      parent.add(active.volume.mesh, active.portrait.mesh);
+    const illustrated = pose.mode === 'ai' && texture;
+    const beat = pose.march * 4.35;
+    const down = THREE.MathUtils.smoothstep(pose.defeat, 0.12, 0.94);
+    if (illustrated) {
+      if (!active.portrait) {
+        active.portrait = createSculptedPaint(kind, texture);
+        parent.add(active.portrait.mesh);
+      }
+      if (active.root) active.root.visible = false;
+      active.portrait.mesh.visible = true;
+      active.portrait.pose({ ...pose, down });
+      return true;
     }
-    const beat = pose.march * 4.35,
-      down = THREE.MathUtils.smoothstep(pose.defeat, 0.12, 0.94);
-    if (active.volume) {
-      active.portrait.mesh.visible = pose.mode === 'ai';
-      active.volume.mesh.visible = !active.portrait.mesh.visible;
-      const reverse = THREE.MathUtils.smoothstep(down, 0.3, 0.92);
-      active.root.visible = active.volume.mesh.visible && reverse > 0.01;
-      active.root.scale.set(0.63 * reverse, 0.66 * reverse, 0.68 * reverse);
-      active.root.position.set(0, 0.07, -0.95);
-      const displayed = active.portrait.mesh.visible ? active.portrait : active.volume;
-      displayed.pose({ ...pose, down });
-    } else {
-      active.root.visible = true;
-      active.root.scale.setScalar(1);
-      active.root.position.set(0, 0, 0);
+    if (!active.root) {
+      const r = rig();
+      active.sample = sculpt[kind](r);
+      r.finish();
+      active.root = r.root;
+      parent.add(r.root);
     }
-    if (!active.root.visible) return true;
+    if (!active.paintState && texture)
+      active.paintState = coatModel(active.root, texture, shell, kind);
+    if (active.portrait) active.portrait.mesh.visible = false;
+    active.root.visible = true;
+    // Maintain the same articulated body through winding approaches, impacts and collapse.
+    active.root.scale.setScalar(creatureScale[kind]);
+    if (active.paintState) active.paintState.value = Math.max(0, pose.hit);
     const air =
       Math.sin(Math.PI * THREE.MathUtils.clamp((pose.vault - 0.21) / 0.89, 0, 1)) +
       Math.sin(Math.PI * THREE.MathUtils.clamp((pose.attack - 0.23) / 0.65, 0, 1));

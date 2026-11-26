@@ -26,7 +26,7 @@ export function creaturePaint() {
 }
 // Register the artist's frontal lighting and markings on the model in bind pose.
 // The UVs then stay attached to each individual shell plate, leg or wing as it moves.
-export function coatModel(root, map, baseMaterial) {
+export function coatModel(root, map, baseMaterial, kind) {
   const mat = baseMaterial.clone(),
     all = [];
   root.updateMatrixWorld(true);
@@ -70,8 +70,21 @@ export function coatModel(root, map, baseMaterial) {
     geo.setAttribute('portraitUv', new THREE.BufferAttribute(p, 3));
     obj.material = mat;
   }
+  const coatings = {
+    diver: [49, 0x76a49e],
+    warden: [39, 0xbc9a60],
+    drill: [82, 0xb3a3dc],
+    kestrel: [63, 0x89b6c7],
+    engine: [61, 0xa18a72],
+  };
+  const [shine, highlight] = coatings[kind];
+  mat.shininess = shine;
+  mat.specular.setHex(highlight);
+  const hitAmount = { value: 0 };
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.paintedSurface = { value: map };
+    shader.uniforms.creatureImpact = hitAmount;
+    shader.uniforms.creatureFinish = { value: art.indexOf(kind) };
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -84,21 +97,41 @@ export function coatModel(root, map, baseMaterial) {
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
-        '#include <common>\nuniform sampler2D paintedSurface;varying vec3 paintCoord;varying vec3 sculpture;',
+        '#include <common>\nuniform sampler2D paintedSurface;uniform float creatureImpact;uniform float creatureFinish;varying vec3 paintCoord;varying vec3 sculpture;',
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
         vec4 skin=texture2D(paintedSurface,paintCoord.xy);
         vec3 base=diffuseColor.rgb;
-        float baseL=dot(base,vec3(.26,.55,.19));float skinL=dot(skin.rgb,vec3(.26,.55,.19));
+        float skinL=dot(skin.rgb,vec3(.26,.55,.19));
         float contrast=clamp(pow((skinL+.075)/(.27+.075),.47),.54,1.65);
         float weight=skin.a*paintCoord.z;
-        diffuseColor.rgb=mix(base, mix(base*contrast,skin.rgb,.50),weight*.83);
+        diffuseColor.rgb=mix(base, mix(base*contrast,skin.rgb,.79),weight*.94);
         float grain=sin(sculpture.x*29.+sin(sculpture.y*18.))*sin(sculpture.z*24.+sculpture.y*13.);
-        diffuseColor.rgb*=1.+.032*grain;`,
+        // Registered paint supplies the large markings. Local detail follows the moving joint.
+        float neighbor=dot(texture2D(paintedSurface,paintCoord.xy+vec2(.008,.011)).rgb,vec3(.26,.55,.19));
+        float carving=clamp((skinL-neighbor)/(.12+skinL),-.32,.38)*weight;
+        vec2 st=vec2(sculpture.x+sculpture.z*.44,sculpture.y+sculpture.z*.68);
+        float relief;
+        if(creatureFinish<.5) {
+          vec2 p=st*19.;p.x+=.5*mod(floor(p.y),2.);
+          relief=-.10*smoothstep(.28,.43,length(fract(p)-.5))+.035*grain;
+        } else if(creatureFinish<1.5) {
+          relief=.044*grain+.035*cos(st.y*65.+sin(st.x*11.)*2.);
+        } else if(creatureFinish<2.5) {
+          relief=.063*abs(sin(st.x*19.+st.y*11.))+.031*grain;
+        } else if(creatureFinish<3.5) {
+          relief=.054*cos(st.y*39.+sin(st.x*18.))+.018*grain;
+        } else {
+          relief=.028*cos(st.y*64.+st.x*3.)+.018*grain;
+        }
+        float detail=1.-smoothstep(.016,.055,max(fwidth(st.x),fwidth(st.y)));
+        diffuseColor.rgb*=1.+detail*relief+carving*.38;
+        diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.,.75,.46),.36*creatureImpact);`,
       );
   };
+  return hitAmount;
 }
 const vertex = `
   varying vec2 tex;uniform vec4 motion;uniform float kind,fall,bodyWidth,bodyHeight;
@@ -117,46 +150,6 @@ const vertex = `
     p.z+=.16*(1.-min(1.,2.*abs(x)))*sin(y*3.1416);
     gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.);
   }`;
-export function createPaintedBoss(kind, texture) {
-  const widths = { diver: 4.0, warden: 2.79, drill: 3.13, kestrel: 4.55, engine: 4.11 };
-  const width = widths[kind],
-    height = (width * texture.image.height) / texture.image.width;
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      paint: { value: texture },
-      motion: { value: new THREE.Vector4() },
-      kind: { value: art.indexOf(kind) },
-      fall: { value: 0 },
-      bodyWidth: { value: width },
-      bodyHeight: { value: height },
-      hit: { value: 0 },
-    },
-    vertexShader: vertex,
-    fragmentShader: `varying vec2 tex;uniform sampler2D paint;uniform float hit;
-   void main(){vec4 p=texture2D(paint,tex);if(p.a<.27)discard;gl_FragColor=vec4(mix(p.rgb,vec3(1.,.76,.42),hit*.29),p.a);
-   #include <colorspace_fragment>
-   }`,
-    side: THREE.DoubleSide,
-    alphaToCoverage: true,
-  });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 30, 30), material);
-  mesh.frustumCulled = false;
-  return {
-    mesh,
-    pose(p) {
-      const u = material.uniforms;
-      u.motion.value.set(
-        kind === 'kestrel' ? p.time * 5 : p.march * 5.6,
-        p.walk * (1 - p.down),
-        p.charge,
-        p.release,
-      );
-      u.fall.value = p.down;
-      u.hit.value = p.hit;
-    },
-  };
-}
-
 // A closed relief mesh preserves the silhouette of the painted creature. Thickness
 // comes from both the silhouette distance and the anatomical volumes, including horns,
 // claws and wing membranes. The two caps share edge vertices through a stitched rim.
@@ -345,13 +338,18 @@ export function createSculptedPaint(kind, texture) {
      sculpt.x+=drawX*bodyWidth;sculpt.y+=drawY*bodyHeight*.84;sculpt.z-=drawY*bodyHeight*.44;
      sculpt.z+=depth+foot*base*walk*.16;
      if(kind>1.5 && kind<2.5){float jaw=(1.-smoothstep(.12,.24,abs(x+.12)))*(1.-smoothstep(.11,.23,abs(y-.30)));sculpt.y-=jaw*(windup*.10+act*.15);}
-     if(kind>2.5 && kind<3.5)sculpt.z+=edge*(.19*sin(beat)-fall*.42);
+     if(kind>2.5 && kind<3.5)sculpt.z+=edge*(.19*sin(beat+abs(x)*1.1)-fall*.42);
+     if(kind<.5)sculpt.z+=edge*(.22*windup-.31*act);
+     if(kind>3.5)sculpt.z-=smoothstep(.47,.85,y)*edge*act*.24;
      gl_Position=projectionMatrix*modelViewMatrix*vec4(sculpt,1.);`,
       ),
     fragmentShader: `varying vec2 tex;varying float cap;varying vec3 ns;uniform sampler2D paint;uniform float hit;
      void main(){vec4 p=texture2D(paint,tex);if(p.a<.25)discard;
-       float light=.86+.16*max(0.,dot(normalize(ns),normalize(vec3(-.52,.76,.56))));
-       vec3 rgb=p.rgb*light*mix(.48,1.,cap);
+       vec3 n=normalize(ns);
+       float light=.88+.16*max(0.,dot(n,normalize(vec3(-.52,.76,.56))));
+       vec3 rgb=p.rgb*light*mix(.53,1.,cap);
+       float gloss=pow(max(0.,dot(n,normalize(vec3(-.33,.56,.76)))),22.);
+       rgb+=.035*cap*gloss*vec3(.77,.90,1.);
        gl_FragColor=vec4(mix(rgb,vec3(1.,.78,.42),hit*.30),p.a);
        #include <colorspace_fragment>
      }`,

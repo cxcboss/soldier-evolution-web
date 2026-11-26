@@ -8,10 +8,10 @@
     'Microsoft YaHei',
     sans-serif;
   font-synthesis: none;
-  --ink: #102a37;
-  --ivory: #f6f1df;
-  --amber: #ffbd51;
-  --hairline: #d4e1d63b;
+  --ink: #102b51;
+  --ivory: #f8fbff;
+  --amber: #ffd226;
+  --hairline: #abdfff50;
 }
 * {
   box-sizing: border-box;
@@ -28,7 +28,7 @@ body {
   display: grid;
   place-items: center;
   color: var(--ivory);
-  background: #102d36 url('./art/expedition-chart.webp') center / cover;
+  background: #10283e url('./art/expedition-chart.webp?v=harbor-arcade1') center / cover;
   -webkit-tap-highlight-color: transparent;
 }
 button {
@@ -44,7 +44,7 @@ button {
   touch-action: manipulation;
 }
 button:focus-visible {
-  outline: 3px solid #f8ba59;
+  outline: 3px solid #40c9ff;
   outline-offset: 3px;
 }
 button:disabled {
@@ -75,10 +75,10 @@ button:active:not(:disabled) {
   isolation: isolate;
   overflow: hidden;
   color: var(--ivory);
-  background: #112e40;
+  background: #122947;
   box-shadow:
-    0 0 0 1px #b9d9c535,
-    0 0 72px #00161c9c;
+    0 0 0 1px #8fcaff44,
+    0 0 72px #061221a8;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
@@ -113,15 +113,21 @@ button:active:not(:disabled) {
   display: flex;
   align-items: center;
   height: 41px;
-  background: linear-gradient(150deg, #143441f2, #102a36ee);
+  background: linear-gradient(150deg, #163958f5, #102139f2);
   box-shadow:
     inset 0 0 0 1px var(--hairline),
-    0 2px 5px #071c2639;
+    0 2px 5px #07152b55;
   border-radius: 9px;
 }
 .readings {
-  border-bottom-left-radius: 4px;
-  border-bottom-right-radius: 4px;
+  border-radius: 18px;
+  padding-inline: 2px;
+}
+.readings .progress {
+  right: 13px;
+  left: 13px;
+  bottom: 3px;
+  border-radius: 2px;
 }
 #level {
   display: flex;
@@ -160,8 +166,7 @@ button:active:not(:disabled) {
   padding: 0 9px 0 7px;
   position: relative;
 }
-.stat::before,
-.controls button + button::before {
+.stat::before {
   content: '';
   width: 1px;
   height: 14px;
@@ -169,20 +174,20 @@ button:active:not(:disabled) {
   top: 50%;
   left: 0;
   transform: translateY(-50%);
-  background: #d7e7df29;
+  background: #b1d6fa35;
 }
 .stat svg {
   width: 17px;
   height: 17px;
 }
 .blue {
-  color: #a0e0ed;
+  color: #5dd6ff;
 }
 .gold {
-  color: #ffcc75;
+  color: #ffd63a;
 }
 .stat b {
-  color: #fff9e9;
+  color: #fafdff;
   font:
     760 17px/1.1 'Arial Narrow',
     sans-serif;
@@ -195,30 +200,37 @@ button:active:not(:disabled) {
   right: 4px;
   height: 2px;
   overflow: hidden;
-  background: #9ab7b63b;
+  background: #86a9cf53;
 }
 .progress i {
   display: block;
   height: 100%;
   transform: scaleX(0);
   transform-origin: left;
-  background: #ebb15b;
+  background: #41bdff;
   transition: transform 0.45s linear;
 }
 .controls {
   pointer-events: auto;
+  gap: 4px;
+  background: none;
+  box-shadow: none;
 }
 .controls button {
   display: grid;
   place-items: center;
   position: relative;
-  width: 37px;
-  height: 41px;
-  border-radius: 7px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(155deg, #244c73f5, #112742f5 75%);
+  box-shadow:
+    inset 0 0 0 1px #98c9ed66,
+    0 2px 4px #05132442;
 }
 .controls button:hover,
 #level:hover {
-  background: #c4d7d012;
+  box-shadow: inset 0 0 0 1px #8bd9ff;
 }
 .controls svg {
   width: 18px;
@@ -233,11 +245,10 @@ button:active:not(:disabled) {
 .stage:is([data-phase='loading'], [data-phase='ready']) :is(.home-map-label, #level .map-symbol) {
   display: block;
 }
-.stage:is([data-phase='loading'], [data-phase='ready']) .readings,
-.stage:is([data-phase='loading'], [data-phase='ready']) .controls {
-  background: #0c2334ae;
-  box-shadow: inset 0 0 0 1px #d7dfd33a;
-  border-radius: 8px;
+.stage:is([data-phase='loading'], [data-phase='ready']) .readings {
+  background: #0d2844d9;
+  box-shadow: inset 0 0 0 1px #7bc9fa56;
+  border-radius: 20px;
 }
 .stage:is([data-phase='loading'], [data-phase='ready']) .hud {
   inset-inline: clamp(20px, 6.5%, 40px);
@@ -251,18 +262,18 @@ button:active:not(:disabled) {
   display: none;
 }
 
-/* A printed expedition cover; controls stay clear of the illustration's focal group. */
+/* The cover keeps the captain and the bridge clear of the title and controls. */
 .start {
   position: absolute;
   inset: 0;
   z-index: 3;
-  background: #0b2331;
+  background: #102746;
   overflow: hidden;
 }
 .cover-art {
   position: absolute;
   inset: 0 0 clamp(115px, 17%, 195px);
-  background: #103552 url('./art/convoy-keyart.webp') center 56% / cover no-repeat;
+  background: #124774 url('./art/convoy-keyart.webp?v=harbor-arcade1') center 56% / cover no-repeat;
 }
 .cover-art::after {
   content: '';
@@ -270,12 +281,12 @@ button:active:not(:disabled) {
   inset: 0;
   background: linear-gradient(
     180deg,
-    #081d3133 0,
-    #0b233026 22%,
+    #081c3333 0,
+    #0a243826 22%,
     transparent 37%,
     transparent 71%,
-    #0b233130 87%,
-    #0b2331 100%
+    #10274630 87%,
+    #102746 100%
   );
 }
 .game-title {
@@ -283,14 +294,14 @@ button:active:not(:disabled) {
   top: calc(var(--top) + clamp(54px, 8.4svh, 94px));
   left: clamp(22px, 6.5%, 40px);
   right: 16px;
-  text-shadow: 0 2px 5px #0a243b77;
+  text-shadow: 0 2px 5px #0623448c;
 }
 .game-title p {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 6px;
-  color: #ffd082;
+  color: #8edbff;
   font-size: clamp(12px, 1.9svh, 17px);
   font-weight: 750;
   letter-spacing: 0.22em;
@@ -302,7 +313,7 @@ button:active:not(:disabled) {
 .game-title h1 {
   display: inline-block;
   margin: 0;
-  color: #fff5df;
+  color: #f9fcff;
   line-height: 1.12;
   font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
   font-weight: 1000;
@@ -310,11 +321,15 @@ button:active:not(:disabled) {
   letter-spacing: -0.055em;
   transform: skewX(-5deg);
   transform-origin: bottom left;
-  -webkit-text-stroke: 0.025em #fff5df;
+  -webkit-text-stroke: 0.025em #f9fcff;
   text-shadow:
-    0 3px 0 #12354b,
-    0 4px 0 #12354b,
-    0 8px 22px #0c304799;
+    0 3px 0 #164b88,
+    0 4px 0 #164b88,
+    0 8px 22px #09284ccb;
+}
+.game-title h1 span {
+  color: #ffdb37;
+  -webkit-text-stroke-color: #ffdb37;
 }
 .departure {
   position: absolute;
@@ -322,14 +337,14 @@ button:active:not(:disabled) {
   left: 0;
   right: 0;
   padding: 9px clamp(22px, 6.5%, 40px) var(--bottom);
-  background: linear-gradient(0deg, #0a2331 20%, #10343be6 75%, #0b233100);
+  background: linear-gradient(0deg, #0d2340 20%, #173f6be8 75%, #10274600);
 }
 .mission {
   display: flex;
   align-items: center;
   gap: 13px;
   padding: 0 0 14px;
-  border-bottom: 1px solid #bcb78752;
+  border-bottom: 1px solid #76bfff60;
   margin: 0 0 14px;
 }
 .mission > b {
@@ -338,8 +353,8 @@ button:active:not(:disabled) {
   justify-content: center;
   padding-right: 13px;
   height: 42px;
-  border-right: 1px solid #c4c59970;
-  color: #f8c67d;
+  border-right: 1px solid #7bcfff83;
+  color: #ffdb3c;
   font:
     740 clamp(35px, 5.2svh, 51px) / 1 'Arial Narrow',
     'Helvetica Neue',
@@ -351,14 +366,14 @@ button:active:not(:disabled) {
 .dialog-top small {
   display: block;
   margin-bottom: 3px;
-  color: #bbc9bd;
+  color: #abd8f9;
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.12em;
 }
 .mission h2 {
   margin: 0;
-  color: #fff6e4;
+  color: #f9fcff;
   font-size: clamp(18px, 2.45svh, 23px);
   font-weight: 760;
   line-height: 1.15;
@@ -367,7 +382,7 @@ button:active:not(:disabled) {
   margin-left: auto;
   width: 23px;
   height: 23px;
-  color: #d6cda1a3;
+  color: #8acbffa8;
 }
 .primary {
   width: 100%;
@@ -378,12 +393,14 @@ button:active:not(:disabled) {
   gap: 10px;
   position: relative;
   border-radius: 9px;
-  color: #31271c;
-  background: linear-gradient(172deg, #ffda8a, #ffb658 82%);
+  color: #35301d;
+  border: 1px solid #ffdf44;
+  background: linear-gradient(175deg, #fff178 0%, #ffdc38 40%, #ffca14 80%, #f5b80c 100%);
   box-shadow:
-    inset 0 1px 0 #fff1b6,
-    inset 0 -2px 0 #9d651f58,
-    0 3px 9px #04152029;
+    inset 0 2px 0 #fff7a1,
+    inset 0 -3px 0 #bb870f80,
+    0 2px 0 #83680e,
+    0 4px 8px #061a385e;
   font-weight: 850;
   font-size: 16px;
   letter-spacing: 0.07em;
@@ -410,7 +427,7 @@ button:active:not(:disabled) {
   background: repeating-linear-gradient(
     115deg,
     transparent 0 6px,
-    #8e601f 6px 8px,
+    #a97800 6px 8px,
     transparent 8px 13px
   );
   mask-image: linear-gradient(transparent 24%, #000 24% 76%, transparent 76%);
@@ -420,7 +437,7 @@ button:active:not(:disabled) {
   text-align: center;
   font-weight: 520;
   font-size: 11px;
-  color: #c3cec8;
+  color: #bbd6ef;
   line-height: 1.4;
   letter-spacing: 0.085em;
 }
@@ -431,9 +448,9 @@ button:active:not(:disabled) {
   z-index: 2;
   pointer-events: none;
   border-radius: 6px;
-  background: #102e39ec;
-  color: #f9efd7;
-  box-shadow: 0 2px 7px #09233242;
+  background: #142d4af2;
+  color: #f5faff;
+  box-shadow: 0 2px 7px #051c3b5c;
 }
 .buffs {
   left: var(--edge);
@@ -441,7 +458,7 @@ button:active:not(:disabled) {
   padding: 5px 9px;
   max-width: calc(100% - 2 * var(--edge));
   font-size: 12px;
-  border-left: 3px solid #70cddd;
+  border-left: 3px solid #47ccff;
 }
 .tip {
   top: max(13%, calc(var(--top) + 76px));
@@ -456,45 +473,49 @@ button:active:not(:disabled) {
   text-align: center;
 }
 .bossbar {
+  --hp-width: 82px;
   position: absolute;
   z-index: 1;
   left: 0;
   top: 0;
-  width: 88px;
-  height: 8px;
-  margin-left: -44px;
-  background: #302327;
-  border: 1.5px solid #311c22;
-  border-radius: 3px;
+  width: var(--hp-width);
+  height: clamp(10px, calc(var(--hp-width) * 0.13), 15px);
+  border: 2px solid #32182b;
+  border-radius: 4px;
+  background: #4a2936;
+  box-shadow:
+    0 1px 0 #230f22,
+    0 2px 3px #140d233d;
   pointer-events: none;
-  box-shadow: 0 1px 2px #00182270;
 }
 .bossbar div {
   height: 100%;
-  background: linear-gradient(90deg, #d94b39, #ff9871);
+  background: linear-gradient(#ff7361 0%, #fa3734 30%, #dc272f 100%);
   transform-origin: left;
-  border-radius: 2px;
+  border-radius: 1px;
 }
-.bossbar b,
-.bossbar small {
+.bossbar b {
   position: absolute;
   left: 0;
   right: 0;
-  color: #fff8e9;
+  top: 50%;
+  transform: translateY(-63%);
+  color: #fffdf6;
   text-align: center;
-  font-weight: 800;
-  -webkit-text-stroke: 2.5px #33252c;
-  paint-order: stroke fill;
-}
-.bossbar b {
-  top: -4px;
   font:
-    800 13px/1 'Arial Narrow',
+    900 clamp(16px, calc(var(--hp-width) * 0.236), 26px) / 1 Inter,
     sans-serif;
+  font-variant-numeric: tabular-nums;
+  -webkit-text-stroke: 3.5px #2b1723;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 #2b1723;
 }
 .bossbar small {
-  bottom: calc(100% + 6px);
-  font-size: 11px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 .armor-meter {
   position: absolute;
@@ -505,20 +526,20 @@ button:active:not(:disabled) {
   gap: 2px;
   padding: 2px;
   border-radius: 3px;
-  background: #17313bd9;
+  background: #112846e0;
 }
 .armor-meter i {
   width: 7px;
   height: 4px;
-  background: #94deeb;
+  background: #5fceff;
   border-radius: 1px;
 }
 .armor-meter[data-value='2'] i:nth-child(3),
 .armor-meter[data-value='1'] i:nth-child(n + 2) {
-  background: #687070;
+  background: #697286;
 }
 .armor-meter[data-value='1'] i:first-child {
-  background: #ffb75d;
+  background: #ffd339;
 }
 
 .veil,
@@ -529,7 +550,7 @@ button:active:not(:disabled) {
   display: grid;
   place-items: center;
   padding: max(15px, env(safe-area-inset-top)) 17px max(15px, env(safe-area-inset-bottom));
-  background: #071c2bb8;
+  background: #0b1c32be;
 }
 .dialog {
   position: relative;
@@ -541,11 +562,11 @@ button:active:not(:disabled) {
   gap: 12px;
   padding: 25px 22px 21px;
   border-radius: 14px;
-  color: #193743;
-  background: linear-gradient(130deg, #fbf7ea, #e9e6d5);
+  color: #182c4a;
+  background: linear-gradient(130deg, #f8fbff, #dde1f0);
   box-shadow:
-    0 18px 52px #081a267d,
-    inset 0 0 0 1px #fff9ea;
+    0 18px 52px #091c3b85,
+    inset 0 0 0 1px #f9fcff;
   overflow-y: auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -557,7 +578,7 @@ button:active:not(:disabled) {
   left: 22px;
   width: 46px;
   height: 4px;
-  background: #d59b45;
+  background: #2caafc;
 }
 .dialog-top {
   display: flex;
@@ -569,8 +590,11 @@ button:active:not(:disabled) {
   flex: 0 0 45px;
   height: 47px;
   place-items: center;
-  color: #be893e;
-  background: #1b3942;
+  color: #e5f9ff;
+  background: linear-gradient(160deg, #399fdc, #1c63b0 80%);
+  box-shadow:
+    inset 0 1px 0 #88dfff,
+    inset 0 -2px 0 #124e96;
   border-radius: 8px;
 }
 .dialog-emblem svg {
@@ -578,7 +602,7 @@ button:active:not(:disabled) {
   height: 27px;
 }
 .dialog-top small {
-  color: #65756c;
+  color: #506581;
   font-size: 11px;
 }
 .dialog h2 {
@@ -590,51 +614,52 @@ button:active:not(:disabled) {
 .dialog p {
   margin: 1px 0 5px;
   font-size: 14px;
-  color: #425963;
+  color: #384d6a;
   line-height: 1.55;
 }
 .dialog p:empty {
   display: none;
 }
 .dialog[data-panel='lost'] .dialog-emblem {
-  color: #f9c49c;
-  background: #88513c;
+  color: #fff3d7;
+  background: #ae4545;
 }
 .dialog[data-panel='won'] .dialog-emblem {
-  color: #ffe29b;
-  background: #48614c;
+  color: #ffec67;
+  background: #246ac0;
 }
 .dialog .primary {
   margin-top: 3px;
 }
 .secondary {
-  color: #2b4a55;
+  color: #244669;
   min-height: 39px;
   font-size: 14px;
   font-weight: 650;
-  border: 1px solid #90a29a86;
+  border: 1px solid #91a5c3a3;
   border-radius: 7px;
 }
 .secondary:hover {
-  background: #b2c4b636;
+  background: #8bbcfa40;
 }
 .options {
   display: grid;
   gap: 3px;
   border-radius: 8px;
   padding: 4px;
-  background: #c8d0c3;
+  background: #c5d0e4;
   grid-template-columns: repeat(3, 1fr);
 }
 .options button {
   padding: 10px 1px;
   border-radius: 5px;
   font-size: 14px;
-  color: #294953;
+  color: #30476a;
 }
 .options button[aria-pressed='true'] {
-  color: #ffefd3;
-  background: #254751;
+  color: #f3faff;
+  background: linear-gradient(155deg, #248fd9, #1d63ac);
+  box-shadow: inset 0 1px 0 #77cbfc;
   font-weight: 750;
 }
 .dialog.levels {
@@ -652,10 +677,10 @@ button:active:not(:disabled) {
   overscroll-behavior: contain;
   touch-action: pan-y;
   scrollbar-width: thin;
-  scrollbar-color: #aeb8aa transparent;
+  scrollbar-color: #8297b9 transparent;
 }
 .chapter {
-  --region: #3e7177;
+  --region: #21669c;
   min-width: 0;
   margin-bottom: 15px;
 }
@@ -663,30 +688,30 @@ button:active:not(:disabled) {
   margin-bottom: 2px;
 }
 .chapter[data-theme='timber'] {
-  --region: #626e47;
+  --region: #36785f;
 }
 .chapter[data-theme='quarry'] {
-  --region: #8a634a;
+  --region: #8d6348;
 }
 .chapter[data-theme='forge'] {
-  --region: #566573;
+  --region: #475c83;
 }
 .chapter[data-theme='ice'] {
-  --region: #508199;
+  --region: #286f9d;
 }
 .chapter[data-theme='cinder'] {
-  --region: #895749;
+  --region: #914644;
 }
 .chapter-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  color: #fffae8;
+  color: #f5f9ff;
   padding: 8px 11px;
   border-radius: 6px;
   background:
     linear-gradient(105deg, var(--region), transparent 135%),
-    url('./art/expedition-chart.webp') center 54% / 120%;
+    url('./art/expedition-chart.webp?v=harbor-arcade1') center 54% / 120%;
 }
 .chapter-heading h3 {
   margin: 0;
@@ -697,7 +722,7 @@ button:active:not(:disabled) {
   font:
     650 11px/1.2 'Arial Narrow',
     sans-serif;
-  color: #f3e6c4;
+  color: #e0f1ff;
   letter-spacing: 0.05em;
 }
 .chapter-stages {
@@ -715,7 +740,7 @@ button:active:not(:disabled) {
   min-width: 0;
   min-height: 62px;
   padding: 7px 0 4px;
-  color: #284952;
+  color: #243c60;
   border-radius: 6px;
   font-size: 10px;
   line-height: 1.35;
@@ -727,7 +752,7 @@ button:active:not(:disabled) {
   left: -4px;
   right: -4px;
   top: 20px;
-  background: #a3b0a2;
+  background: #a3afcb;
   z-index: 0;
 }
 .stage-list button:first-child::before {
@@ -744,8 +769,8 @@ button:active:not(:disabled) {
   height: 27px;
   padding: 0 3px;
   color: var(--region);
-  background: #f8f2df;
-  border: 1px solid #afbcac;
+  background: #f9fbff;
+  border: 1px solid #a1b0ca;
   border-radius: 50%;
   font:
     760 13px/1 'Arial Narrow',
@@ -753,20 +778,20 @@ button:active:not(:disabled) {
   font-variant-numeric: tabular-nums;
 }
 .stage-list button[aria-current='true'] b {
-  color: #fff2ca;
-  background: #234b52;
-  border-color: #234b52;
-  box-shadow: 0 0 0 2px #f1cb82;
+  color: #fff9d9;
+  background: #146cbe;
+  border-color: #146cbe;
+  box-shadow: 0 0 0 2px #ffd331;
 }
 .stage-list button[data-hard] b {
   border-radius: 6px;
-  color: #ffe7c3;
-  border-color: #a4573e;
-  background: #a4573e;
+  color: #fff4d0;
+  border-color: #b7453c;
+  background: #b7453c;
 }
 .stage-list button:hover,
 .stage-list button:focus-visible {
-  background: #ccd3bf8c;
+  background: #b3c8e88c;
 }
 .stage-list button:focus-visible {
   outline-offset: -2px;
@@ -779,7 +804,7 @@ button:active:not(:disabled) {
 .problem {
   color: var(--ivory);
   z-index: 8;
-  background: #142e3e;
+  background: #142e54;
   text-align: center;
   line-height: 1.6;
   align-content: center;
@@ -865,8 +890,8 @@ button:active:not(:disabled) {
   padding: 1px 5px;
   margin-top: -3px;
   border-radius: 3px;
-  background: #a5573d;
-  color: #fff3d9;
+  background: #a33b3c;
+  color: #fff5dc;
   font-size: 9px;
   font-weight: 700;
 }
@@ -874,26 +899,26 @@ button:active:not(:disabled) {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1px;
-  background: #b3b9a79c;
+  background: #a0afc89c;
   margin: 0;
-  border: 1px solid #b3b9a79c;
+  border: 1px solid #a0afc89c;
   border-radius: 7px;
   overflow: hidden;
 }
 .result-stats div {
   padding: 10px 13px;
-  background: #eeeada;
+  background: #e6eaf6;
 }
 .result-stats dt {
   font-size: 11px;
   font-weight: 650;
-  color: #5c706d;
+  color: #536781;
 }
 .result-stats dd {
   margin: 3px 0 0;
   font:
     750 22px/1.1 'Arial Narrow',
     sans-serif;
-  color: #26434a;
+  color: #213c65;
   font-variant-numeric: tabular-nums;
 }

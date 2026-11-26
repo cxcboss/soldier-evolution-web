@@ -119,7 +119,7 @@ export class Battle {
     this.toNextRow = 0;
     this.entryZ ??= -46;
     this.finaleRow = this.route.finale;
-    this.lastRow = this.finaleRow + 48;
+    this.lastRow = this.finaleRow + (this.route.siege ? 30 : 18);
     this.hitGuard = 0;
     this.score = 0;
     this.recruits = 0;
@@ -164,6 +164,7 @@ export class Battle {
       card.cover = terrainPiece(card.coverSpec, this.stage);
       this.features.push(card.cover);
     }
+    this.bossEntryStride = 8.15;
     this.bossStride = 1.02 + Math.min(0.27, (this.stage - 1) * 0.014);
     this.marchSpeed = MARCH_SPEED + Math.min(0.28, (this.stage - 1) * 0.012);
     this.wave = null;
@@ -210,6 +211,13 @@ export class Battle {
   }
   get playing() {
     return this.phase === 'run' || this.phase === 'boss' || this.phase === 'clear';
+  }
+  get roadSpeed() {
+    if (!this.boss.active) return 3.65;
+    if (this.boss.defeated) return 2.3;
+    // Ease the convoy's pace as the boss reaches the fighting distance. The road
+    // still moves under every card, gap and soldier during the duel.
+    return 2.3 - 1.48 * smoothRange(this.boss.z, -16, -10);
   }
   get cannonDamage() {
     return 26 + this.upgrades * 5 + Math.round((this.stage - 1) * 0.88);
@@ -354,10 +362,19 @@ export class Battle {
       }
     }
     const single = this.wave.length === 1;
+    // The last formation escorts the boss in narrower files; the player can now
+    // read the boss's windup and concentrate fire between the two flanks.
+    const escort = this.row >= this.finaleRow - 44;
+    const fileFraction = escort ? (this.route.siege ? 0.8 : 0.52) : 1;
     for (const c of this.columns) {
       const i = c.index;
       const fullWidth = single ? 9 : i < 6 ? 6 : 5;
-      const size = Math.min(fullWidth, Math.round(fullWidth * (0.32 + 0.68 * this.route.pressure)));
+      const size = Math.max(
+        2,
+        Math.round(
+          Math.min(fullWidth, fullWidth * (0.32 + 0.68 * this.route.pressure)) * fileFraction,
+        ),
+      );
       const file = single || i < 6 ? i : i - 6;
       const lane = this.wave[single || i < 6 ? 0 : 1];
       if (file >= size || (inPack < 2 && (file === 0 || file === size - 1))) continue;
@@ -891,7 +908,9 @@ export class Battle {
         shot.z,
         shot.kind === 'rocket' ? shot.power * 0.7 : 0.7,
       );
-      this.damageBoss(shot, shot.damage);
+      // The captain's heavy shell punctures boss armour on a direct hit. Splash
+      // and rifle hits keep their usual damage, so lining the cannon up matters.
+      this.damageBoss(shot, shot.damage * (shot.profile === cannonRound ? 4.2 : 1));
     } else if (shot.kind === 'rocket') {
       this.blast(shot, target.z);
       const b = this.boss;
@@ -1079,7 +1098,11 @@ export class Battle {
     const rush = b.skill?.kind === 'warden' && b.skill.fired && !b.skill.marks[0].hit ? 2.2 : 0;
     if (!b.pursuing && b.z >= this.captainZ - 9.7) b.pursuing = true;
     const target = b.pursuing ? closestSquadMember(this) : null;
-    const pace = b.pursuing ? 2.75 : this.bossStride;
+    // Cover the far, heavily foreshortened approach briskly, then settle into fighting stride.
+    const approach = 1 - smoothRange(b.z, -23, -15);
+    const pace = b.pursuing
+      ? 2.75
+      : this.bossStride + (this.bossEntryStride - this.bossStride) * approach;
     const stride = dt * pace * (1 - 0.38 * b.brace + 0.78 * b.special + rush);
     bossStep(this, dt, target, stride);
     if (b.kind === 'kestrel' && b.z > -11 && b.z < -7 && !b.glided && !b.skill) {
@@ -1263,8 +1286,7 @@ export class Battle {
       }
     } else if (!this.caught) this.x += (this.targetX - this.x) * (1 - Math.exp(-26 * dt));
     this.velocity = (this.x - oldX) / Math.max(dt, 0.001);
-    const speed = this.boss.active ? 2.3 : 3.65;
-    this.worldAdvance = speed * dt;
+    this.worldAdvance = this.roadSpeed * dt;
     this.distance += this.worldAdvance;
     this.wall.z = this.distance - WALL_AT;
     updateTerrain(this, dt);
