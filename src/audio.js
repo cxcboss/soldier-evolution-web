@@ -10,6 +10,8 @@ const cues = {
   shieldHit: { duration: 0.16, gain: 0.14, interval: 0.14 },
   wallBreak: { duration: 0.43, gain: 0.35, interval: 0.4 },
   plus: { duration: 0.22, gain: 0.18, interval: 0.105 },
+  longRange: { duration: 0.44, gain: 0.25, interval: 0.18 },
+  guardUp: { duration: 0.38, gain: 0.22, interval: 0.18 },
   merge: { duration: 0.41, gain: 0.23, interval: 0.18 },
   slam: { duration: 0.49, gain: 0.42, interval: 0.5 },
   bruiserStrike: { duration: 0.31, gain: 0.28, interval: 0.22 },
@@ -117,6 +119,15 @@ function buildSound(context, kind) {
     case 'plus':
       bell(0, 0.107, 622, 0.56);
       bell(0.06, 0.15, 932, 0.68);
+      break;
+    case 'longRange':
+      bell(0, 0.15, 523, 0.48);
+      bell(0.07, 0.17, 784, 0.55);
+      tone(0.14, 0.28, 960, 1175, 0.38);
+      break;
+    case 'guardUp':
+      tone(0, 0.26, 245, 370, 0.45, 0.2);
+      bell(0.055, 0.28, 622, 0.57);
       break;
     case 'merge':
       tone(0, 0.24, 320, 752, 0.24);
@@ -277,7 +288,11 @@ export function createAudio() {
       if (muted) quiet();
       updateVolume();
     },
-    play(kind, strength = 1) {
+    play(kind, strength = 1, supply = null) {
+      if (kind === 'merge') {
+        if (supply === 'range' || supply === 'longshot') kind = 'longRange';
+        else if (supply === 'shield' || supply === 'medic') kind = 'guardUp';
+      }
       const cue = cues[kind];
       if (!cue || !active || muted || !context || context.state !== 'running' || !(strength > 0))
         return;

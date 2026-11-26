@@ -161,6 +161,7 @@ test('lane-wide protected supplies block shots and touch until the obstacle is d
   assert.ok(cardWidth > 0.88 * laneWidth && cardWidth < laneWidth);
   for (const variant of ['glass', 'crates', 'shutter']) {
     const b = new Battle();
+    b.reset(4);
     b.start();
     const card = b.gates.find((g) => g.cover?.variant === variant);
     const cover = card.cover;
@@ -300,4 +301,79 @@ test('the last red straggler actually falls before the captain and every survivi
   assert.equal(events.filter((k) => k === 'rally').length, 1);
   b.reset(2);
   assert.equal(b.parade, null);
+});
+
+test('each region spans five sorties and the siege peaks independently of later progression', () => {
+  for (let i = 0; i < campaign.length; i++) {
+    const route = campaign[i];
+    assert.equal(route.chapter.first, 1 + Math.floor(i / 5) * 5);
+    assert.equal(route.chapter.last, route.chapter.first + 4);
+    assert.equal(route.theme, route.chapter.theme);
+    if (i % 5) assert.equal(route.chapter, campaign[i - 1].chapter);
+  }
+  const [first, second, third] = campaign;
+  assert.ok(first.pressure < third.pressure && third.pressure < second.pressure);
+  assert.ok(first.bossHP < third.bossHP && third.bossHP < second.bossHP);
+  for (const i of [3, 4, 5, 6, 7, 8, 9, ...Array.from({ length: 19 }, (_, n) => 11 + n)]) {
+    assert.ok(campaign[i].pressure > campaign[i - 1].pressure);
+  }
+  assert.ok(campaign[9].bossHP > 2 * Math.max(campaign[8].bossHP, campaign[10].bossHP));
+  assert.ok(campaign[10].pressure < campaign[8].pressure);
+});
+
+test('cargo telegraphs the physical footprint, hits both teams at touchdown and lands only once', () => {
+  const events = [];
+  const b = new Battle((e) => events.push(e.kind));
+  b.reset(6);
+  b.start();
+  const cargo = b.features.find((p) => p.kind === 'skyfall');
+  b.features = [cargo];
+  const advanceTo = (z) => {
+    b.distance = cargo.at + z;
+    updateTerrain(b, 1 / 60);
+  };
+  advanceTo(-9);
+  assert.equal(cargo.state, 'ready');
+  advanceTo(-6.9);
+  assert.equal(cargo.state, 'warning');
+  assert.ok(cargo.progress < 0.1 && cargo.fallProgress === 0);
+  const local = b.grunt(cargo.x, 0.67);
+  const safe = b.grunt(cargo.x - 3.2, 0.67);
+  b.runners.push(local, safe);
+  b.x = cargo.x - 3;
+  b.allies = [
+    { x: cargo.x, z: 0.5 },
+    { x: b.x, z: 0.5 },
+  ];
+  advanceTo(-0.3);
+  assert.ok(cargo.fallProgress > 0 && cargo.fallProgress < 1);
+  assert.ok(local.alive && b.allies.length === 2);
+  advanceTo(0.68);
+  assert.equal(cargo.state, 'landed');
+  assert.ok(!local.alive && safe.alive);
+  assert.equal(b.allies.length, 1);
+  assert.equal(b.allies[0].x, b.x);
+  assert.equal(b.armor, 3);
+  b.x = cargo.x;
+  advanceTo(0.75);
+  assert.equal(b.armor, 3);
+  assert.equal(events.filter((kind) => kind === 'impact').length, 1);
+});
+
+test('a marked captain can retreat out of the cargo circle, block it, or lose one plate', () => {
+  for (const move of ['leave', 'shield', 'stay']) {
+    const b = new Battle();
+    b.reset(6);
+    b.start();
+    const cargo = b.features.find((p) => p.kind === 'skyfall');
+    b.features = [cargo];
+    b.x = cargo.x;
+    b.distance = cargo.at - 6;
+    updateTerrain(b, 1 / 60);
+    if (move === 'leave') b.x -= cargo.radius + 0.2;
+    if (move === 'shield') b.buffs.shield = 1;
+    b.distance = cargo.at + 0.67;
+    for (let i = 0; i < 3; i++) updateTerrain(b, 1 / 60);
+    assert.equal(b.armor, move === 'stay' ? 2 : 3);
+  }
 });

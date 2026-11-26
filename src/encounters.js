@@ -87,6 +87,49 @@ export function finaleGap(b) {
   b.features.push(p);
 }
 
+// The warning follows one marked spot on the deck. Its radius is the exact hit area.
+function advanceSkyfall(b, p) {
+  const landingZ = 0.66;
+  const warningTravel = 7.8;
+  const remaining = landingZ - p.z;
+  if (p.state === 'ready' && b.phase !== 'clear' && remaining <= warningTravel) {
+    p.state = 'warning';
+    p.age = 0;
+    b.notice(laneName(p.lane) + '吊货坠落，避开地标');
+  }
+  if (p.state !== 'warning') return;
+  p.progress = clamp(1 - remaining / warningTravel, 0, 1);
+  const speed = b.boss.active ? 2.3 : 3.65;
+  p.fallProgress = clamp(1 - remaining / (0.55 * speed), 0, 1);
+  if (remaining > 0) return;
+  p.state = 'landed';
+  p.age = 0;
+  b.event('impact', p.x, 0.18, p.z, 1.35);
+  const inside = (x, z) => Math.hypot(x - p.x, z - p.z) <= p.radius;
+  function hitRed(e) {
+    if (e.alive && inside(e.x, e.z)) b.kill(e, 1.08, p.x);
+  }
+  for (const col of b.columns) for (const e of col.units) hitRed(e);
+  for (const e of b.runners) hitRed(e);
+  b.allies = b.allies.filter((a) => {
+    if (!inside(a.x, a.z)) return true;
+    b.fall(a, 'blue', 1.15, p.x);
+    return false;
+  });
+  if (!inside(b.x, b.captainZ)) return;
+  if (b.buffs.shield > 0) {
+    b.event('shieldHit', b.x, 0.55, b.captainZ);
+    return;
+  }
+  if (b.hitGuard > 0) return;
+  b.hurt = 1;
+  b.hitGuard = 1.2;
+  if (--b.armor <= 0) {
+    b.lossReason = 'skyfall';
+    b.finish(false);
+  }
+}
+
 export function updateTerrain(b, dt) {
   b.activeGround.length = 0;
   for (const p of b.features) {
@@ -94,6 +137,11 @@ export function updateTerrain(b, dt) {
     p.age += dt;
     p.flash = Math.max(0, p.flash - dt * 6);
     if (p.z < b.entryZ - 12 || p.z > 15) continue;
+    if (p.kind === 'skyfall') {
+      advanceSkyfall(b, p);
+      if (!b.playing) return;
+      continue;
+    }
     if (p.kind === 'bridge' || p.kind === 'gap' || p.kind === 'belt') b.activeGround.push(p);
     if (!p.warned && p.z > -22 && p.z < -14 && p.state === 'ready' && !p.finale) {
       p.warned = true;
@@ -138,7 +186,7 @@ export function updateTerrain(b, dt) {
       p.age = 0;
       b.flanks.push({
         x: p.lane === 0 ? 4.44 : p.x,
-        remaining: 16 + Math.floor(b.stage / 3),
+        remaining: b.route.siege ? 27 : 16 + Math.floor(b.stage / 3),
         next: 0,
       });
       b.notice(laneName(p.lane) + '吊桥接通，增援来了');
@@ -196,6 +244,11 @@ export function updateTerrain(b, dt) {
       const e = b.grunt(flank.x + ((flank.remaining % 3) - 1) * 0.12, b.entryZ - 0.92);
       e.speed = 3.18;
       e.flank = true;
+      if (b.route.siege && flank.remaining % 5 === 0) {
+        e.role = 'guard';
+        e.size *= 1.32;
+        e.hp = 9;
+      }
       b.runners.push(e);
     }
   }

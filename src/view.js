@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { createCaptain, createTroopGeometry, fieldEquipment } from './figures.js';
 import { loadBrawler } from './brawler.js';
 import { slamRadius, touchdown } from './brawler-motion.js';
+import { createRoadBend } from './road-bend.js';
+import { makeSupplyTokens } from './supply-art.js';
 import { createCourseArt } from './course-art.js';
 import { createBossFX } from './boss-fx.js';
 import { createEffects } from './effects.js';
@@ -188,6 +190,7 @@ export function makeView(canvas, stage) {
   renderer.setClearColor(0x092640, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
+  const bend = createRoadBend(renderer, scene);
   scene.add(new THREE.HemisphereLight(0xf4f8ff, 0x8592b7, 1.55));
   const key = new THREE.DirectionalLight(0xffeedc, 2.0);
   key.position.set(-8, 16, 6);
@@ -239,7 +242,8 @@ export function makeView(canvas, stage) {
     kits[role] = mesh;
   }
   const drawBossSkills = createBossFX(scene);
-  const course = createCourseArt(scene),
+  const tokens = makeSupplyTokens(scene);
+  const course = createCourseArt(scene, bend.curve),
     effects = createEffects(scene);
   let sprites = null;
   const spritesReady = createSpriteArt(scene)
@@ -275,6 +279,7 @@ export function makeView(canvas, stage) {
     const playing = s.playing,
       is3d = mode !== 'ai';
     const mix = 1 - Math.exp(-8.5 * dt);
+    bend.setRoute(s.route.theme, s.stage, s.distance);
     const defeatTime = s.boss.defeatAge;
     const finishFocus = s.boss.defeated
       ? 0.18 *
@@ -285,15 +290,36 @@ export function makeView(canvas, stage) {
     // player at the outer rail on screen on very narrow phones.
     const halfView = 19.5 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.aspect;
     const edgePan = Math.sign(s.x) * Math.max(0, Math.abs(s.x) - halfView * 0.54);
-    const focusX = THREE.MathUtils.lerp(edgePan, s.boss.x, finishFocus);
+    const onCurve = bend.curve.x > 0;
+    const nearPan = onCurve ? THREE.MathUtils.clamp(edgePan, -1.0, 1.0) : edgePan;
+    const focusX = THREE.MathUtils.lerp(nearPan, s.boss.x + bend.offset(s.boss.z), finishFocus);
     const focusZ = (s.boss.z + 5.4) * finishFocus;
+    if (onCurve && !finishFocus) cameraX = THREE.MathUtils.clamp(cameraX, -1, 1);
     cameraX += (focusX - cameraX) * mix;
     shake = Math.max(0, shake - dt * 1.75);
     const jx = Math.sin(time * 58) * shake * shake * 0.19,
       jy = Math.sin(time * 72) * shake * shake * 0.12;
-    camera.position.set(cameraX + jx, 15.0 + jy - finishFocus * 1.2, 13.2 + focusZ);
-    camera.lookAt(cameraX + 0.06 + jx, 0.12, -7.45 + focusZ);
+    // Pull back on winding roads while keeping the same distant entry line.
+    // The near end follows the squad; the optical axis meets the bend farther
+    // ahead, where both outside lanes must still be readable before a choice.
+    const eyeY = onCurve
+      ? THREE.MathUtils.clamp(19.5 + (0.5 - camera.aspect) * 29, 17.5, 23.4)
+      : 15;
+    const eyeZ = 13.2 + (eyeY - 15) * 0.81;
+    const tangent = onCurve ? (cameraX - bend.offset(-22) * 0.45) / 30 : 0;
+    const fovHalf = THREE.MathUtils.degToRad(camera.fov / 2);
+    const normalPitch = Math.atan2(14.88, 20.65);
+    const topZ = 13.2 - 15 / Math.tan(normalPitch - fovHalf);
+    const pitch = Math.atan2(eyeY, eyeZ - topZ) + fovHalf;
+    const lookZ = eyeZ - (eyeY - 0.12) / Math.tan(pitch);
+    camera.position.set(
+      cameraX + jx + tangent * eyeZ,
+      eyeY + jy - finishFocus * 1.2,
+      eyeZ + focusZ,
+    );
+    camera.lookAt(cameraX + 0.06 + jx + tangent * lookZ, 0.12, lookZ + focusZ);
     camera.updateMatrixWorld();
+    bend.setCamera(camera);
     const walk = playing || s.overrun || s.parade ? 1 : 0;
     const step = time * 10.8 + (s.parade ? s.endTime * 5.6 : 0);
     course.update(s);
@@ -356,10 +382,10 @@ export function makeView(canvas, stage) {
       pose.updateMatrix();
       support.setMatrixAt(supportCount++, pose.matrix);
     }
+    tokens.update(s.deliveries);
     for (const f of s.deliveries) {
-      if (f.age < 0) continue;
-      if (f.slot == null) crystal(f.x, f.y + 0.14, f.z, 1.5);
-      else if (mode === '3d')
+      if (f.age < 0 || f.slot == null) continue;
+      if (mode === '3d')
         blue.put(f.x, f.y, f.z, 0.65 + 0.35 * f.progress, 0.42, 0, 0, 0, step + f.phase, 0.55);
     }
     if (s.buffs.drone > 0)
@@ -479,6 +505,7 @@ export function makeView(canvas, stage) {
     red.end();
     if (sprites) sprites.draw(s, camera, time, mode);
     effects.update(dt, advance, s.shots, s.incoming);
+    bend.prepareScene();
     renderer.render(scene, camera);
   }
   return {
@@ -492,11 +519,11 @@ export function makeView(canvas, stage) {
       return 13.2 - 15 / Math.tan(pitch - THREE.MathUtils.degToRad(camera.fov / 2));
     },
     project(x, y, z) {
-      world.set(x, y, z).project(camera);
+      world.set(x + bend.offset(z), y, z).project(camera);
       return { x: ((world.x + 1) * width) / 2, y: ((1 - world.y) * height) / 2 };
     },
     feedback(e) {
-      effects.burst(e.kind, e.x, e.y, e.z, e.strength);
+      effects.burst(e.kind, e.x, e.y, e.z, e.strength, e.supply);
       if (e.kind === 'slam' || e.kind === 'wallBreak' || e.kind === 'bossBurst') shake = 0.85;
       else if (e.kind === 'victory' || e.kind === 'vaultLand') shake = Math.max(shake, 0.5);
       else if (e.kind === 'impact') shake = Math.max(shake, 0.25);

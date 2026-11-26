@@ -34,7 +34,6 @@ const WALL_AT = 21;
 const HALF_ROAD = 5.45;
 export const retreatRange = 1.38;
 const COLUMNS = 11;
-const ROW_SPACING = 0.565;
 const MARCH_SPEED = 2.47;
 const waveLanes = [[-1, 1], [1, 0], [-1, 0], [1], [0, -1], [1, -1], [0], [0, 1], [-1]];
 const PACK_ROWS = 11;
@@ -125,9 +124,9 @@ export class Battle {
     this.score = 0;
     this.recruits = 0;
     this.endTime = 0;
-    const wallHP = 72 + (this.stage - 1) * 2.1;
+    const wallHP = this.route.wallHP;
     this.wall = { x: 4.13, z: -WALL_AT, hp: wallHP, maxHp: wallHP, flash: 0 };
-    const bossHP = 365 + (this.stage - 1) * 27;
+    const bossHP = this.route.bossHP;
     this.boss = {
       x: -0.42,
       z: this.entryZ - 1.4,
@@ -194,14 +193,16 @@ export class Battle {
       alive: true,
     };
   }
-  event(kind, x, y, z, strength = 1) {
-    this.emit({ kind, x, y, z, strength });
+  event(kind, x, y, z, strength = 1, supply = null) {
+    this.emit({ kind, x, y, z, strength, supply });
   }
   notice(text) {
     this.hint = { id: ++this.hintSequence, text };
   }
   start() {
-    if (this.phase === 'ready') this.phase = 'run';
+    if (this.phase !== 'ready') return;
+    this.phase = 'run';
+    if (this.stage === 1) this.notice('左右移动，对准 +3 招募士兵');
   }
   aim(x, z = this.targetZ) {
     this.targetZ = clamp(z, 0, retreatRange);
@@ -237,7 +238,7 @@ export class Battle {
     card.active = false;
     card.collectedAt = this.elapsed;
     card.pop = 0;
-    this.event('supplyBreak', card.x, 0.62, card.z);
+    this.event('supplyBreak', card.x, 0.62, card.z, 1, card.type);
     if (card.type === 'blast') {
       // The charge bursts into the ranks beside the card, on the same stretch of bridge.
       const blastX = card.x;
@@ -299,7 +300,7 @@ export class Battle {
           this.buffs[f.type] = duration;
         }
         this.mergeGlow = 1;
-        this.event('merge', this.x, 0.23, this.captainZ);
+        this.event('merge', this.x, 0.23, this.captainZ, 1, f.type);
       }
     }
     this.deliveries = this.deliveries.filter((f) => f.progress < 1);
@@ -355,7 +356,8 @@ export class Battle {
     const single = this.wave.length === 1;
     for (const c of this.columns) {
       const i = c.index;
-      const size = single ? 9 : i < 6 ? 6 : 5;
+      const fullWidth = single ? 9 : i < 6 ? 6 : 5;
+      const size = Math.min(fullWidth, Math.round(fullWidth * (0.32 + 0.68 * this.route.pressure)));
       const file = single || i < 6 ? i : i - 6;
       const lane = this.wave[single || i < 6 ? 0 : 1];
       if (file >= size || (inPack < 2 && (file === 0 || file === size - 1))) continue;
@@ -493,7 +495,7 @@ export class Battle {
     this.toNextRow -= this.worldAdvance + this.marchSpeed * dt;
     while (this.row < this.lastRow && this.toNextRow <= 0) {
       this.spawnRow();
-      this.toNextRow += ROW_SPACING + (this.row % PACK_ROWS === 0 ? 0.38 : 0);
+      this.toNextRow += this.route.rowSpacing + (this.row % PACK_ROWS === 0 ? 0.38 : 0);
       if (
         this.row >= 70 &&
         Math.abs(this.row - this.finaleRow) > 10 &&
@@ -517,7 +519,7 @@ export class Battle {
       e.overX = victim >= 0 ? this.allies[victim].x : this.x;
     }
     if (this.hitGuard > 0) return true;
-    this.hitGuard = this.buffs.shield > 0 ? 0.46 : 1.26 - Math.min(0.21, this.stage * 0.007);
+    this.hitGuard = this.buffs.shield > 0 ? 0.46 : this.route.contactGrace;
     if (this.buffs.shield > 0) {
       this.event('shieldHit', e.x, 0.35, e.z);
       return true;
@@ -880,7 +882,7 @@ export class Battle {
       target.hp = Math.max(0, target.hp - shot.damage);
       target.flash = 1;
       if (target.hp <= 0) this.openCard(target);
-      else this.event('cardHit', shot.x, 0.6, shot.z, 0.7);
+      else this.event('cardHit', shot.x, 0.6, shot.z, 0.7, target.type);
     } else if (target === this.boss) {
       this.event(
         shot.kind === 'rocket' ? 'impact' : 'hit',
@@ -1245,7 +1247,10 @@ export class Battle {
       this.caught = false;
       this.caughtBy = null;
     }
-    if (axis || back) this.aim(this.targetX + axis * 10.2 * dt, this.targetZ + back * 3.1 * dt);
+    if (axis || back) {
+      const x = axis * (this.targetX - this.x) < 0 ? this.x : this.targetX;
+      this.aim(x + axis * 10.2 * dt, this.targetZ + back * 3.1 * dt);
+    }
     if (!this.caught) this.captainZ += (this.targetZ - this.captainZ) * (1 - Math.exp(-16 * dt));
     const oldX = this.x;
     if (this.rope) {
@@ -1256,7 +1261,7 @@ export class Battle {
         this.rope = null;
         this.aim(r.to);
       }
-    } else if (!this.caught) this.x += (this.targetX - this.x) * (1 - Math.exp(-21 * dt));
+    } else if (!this.caught) this.x += (this.targetX - this.x) * (1 - Math.exp(-26 * dt));
     this.velocity = (this.x - oldX) / Math.max(dt, 0.001);
     const speed = this.boss.active ? 2.3 : 3.65;
     this.worldAdvance = speed * dt;

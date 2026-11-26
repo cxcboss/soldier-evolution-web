@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { landscapes, laneWidth } from './campaign.js';
+import { roadside } from './roadside.js';
+import { roadCurveGLSL } from './road-bend.js';
 import { block, combine, part, strut } from './scenery-mesh.js';
 
 const metal = new THREE.MeshPhongMaterial({
@@ -104,8 +106,73 @@ function coverHardware(variant) {
   return { base: batch(base), sections };
 }
 
+function dropHardware() {
+  const crate = [
+    slab(1.52, 1.19, 1.24, '#a97748', 0, 0.82, 0, 0.055),
+    slab(1.68, 0.15, 1.39, iron, 0, 0.25, 0, 0.033),
+    slab(1.65, 0.12, 1.38, '#66737b', 0, 1.46, 0, 0.03),
+    slab(1.58, 0.25, 0.074, '#ffc76c', 0, 1.12, 0.631),
+    ring(0.175, 0.046, gold, 0, 1.66, 0),
+  ];
+  for (const side of [-1, 1]) {
+    crate.push(slab(0.18, 1.34, 1.32, '#495866', side * 0.61, 0.86, 0, 0.025));
+    crate.push(slab(0.23, 0.17, 1.48, dark, side * 0.52, 0.11, 0, 0.03));
+    for (const y of [0.39, 1.32])
+      crate.push(drum(0.047, 0.047, 0.045, pale, side * 0.61, y, 0.669, turn(Math.PI / 2), 8));
+    crate.push(strut([side * 0.48, 0.44, 0.644], [-side * 0.47, 0.95, 0.644], 0.046, '#ddbb89', 6));
+  }
+  for (let i = -2; i <= 2; i++)
+    crate.push(slab(0.09, 0.24, 0.02, dark, i * 0.22, 1.12, 0.676, 0, turn(0, 0, -0.42)));
+  const warning = [];
+  for (let i = 0; i < 12; i++) {
+    const a = (i * Math.PI) / 6;
+    const arc = new THREE.RingGeometry(0.95, 1.0, 8, 1, a + 0.035, Math.PI / 6 - 0.07);
+    arc.rotateX(-Math.PI / 2);
+    warning.push(part(arc, i % 3 ? '#ffbb49' : '#fff0aa', 0, 0.013, 0));
+    if (i % 3 === 0) {
+      const arrow = new THREE.ConeGeometry(0.075, 0.17, 3);
+      arrow.rotateX(Math.PI / 2);
+      arrow.rotateY(Math.PI / 2 + a);
+      warning.push(part(arrow, '#fff0aa', Math.cos(a) * 0.87, 0.01, -Math.sin(a) * 0.87));
+    }
+  }
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    toneMapped: false,
+    depthWrite: false,
+  });
+  const halo = new THREE.Mesh(combine(warning), material);
+  halo.renderOrder = 3;
+  const disc = new THREE.CircleGeometry(1, 48);
+  disc.rotateX(-Math.PI / 2);
+  const tint = new THREE.Mesh(
+    disc,
+    new THREE.MeshBasicMaterial({
+      color: '#ff7e31',
+      transparent: true,
+      opacity: 0.13,
+      depthWrite: false,
+    }),
+  );
+  tint.renderOrder = 2;
+  const sweepGeo = new THREE.RingGeometry(0.96, 1, 48);
+  sweepGeo.rotateX(-Math.PI / 2);
+  const sweep = new THREE.Mesh(
+    sweepGeo,
+    new THREE.MeshBasicMaterial({
+      color: '#fff0a4',
+      transparent: true,
+      opacity: 0.77,
+      depthWrite: false,
+    }),
+  );
+  sweep.renderOrder = 3;
+  return { base: batch(crate), halo, tint, sweep };
+}
+
 function hardware(kind, length = 4.4, direction = 1, variant) {
   if (kind === 'cover') return coverHardware(variant);
+  if (kind === 'skyfall') return dropHardware();
   const base = [],
     planks = [],
     moving = [];
@@ -351,7 +418,7 @@ function outlook(theme) {
   return combine(bits);
 }
 
-export function createTerrainArt(root) {
+export function createTerrainArt(root, curve = new THREE.Vector4()) {
   const cuts = Array.from({ length: 10 }, () => new THREE.Vector4(0, -1000, 0, 0));
   function cutDeck(mat) {
     mat.onBeforeCompile = (shader) => {
@@ -381,22 +448,42 @@ export function createTerrainArt(root) {
         crest: { value: new THREE.Color() },
         clock: { value: 0 },
         origin: { value: 0 },
+        biome: { value: 0 },
+        roadCurve: { value: curve },
       },
       vertexShader:
         'varying vec3 pos; void main(){vec4 w=modelMatrix*vec4(position,1.);pos=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
-      fragmentShader: `varying vec3 pos; uniform vec3 deep,crest;uniform float clock,origin;
-      void main(){vec2 q=vec2(pos.x,pos.z-origin);float n=sin(q.y*1.36+sin(q.x*.78+clock*.34)*1.5+clock*.45)+.6*sin(q.x*1.45-q.y*.84-clock*.29);
-      float streak=smoothstep(1.36,1.53,n);float light=.10+.13*sin(q.x*.14+q.y*.16)+streak*.33;
-      gl_FragColor=vec4(mix(deep,crest,max(0.,light)),1.);
+      fragmentShader: `${roadCurveGLSL}
+      varying vec3 pos; uniform vec3 deep, crest; uniform float clock, origin, biome;
+      void main(){
+        vec2 q=vec2(pos.x,pos.z-origin);
+        float swell=sin(q.x*.78+clock*.30)*.9+sin(q.x*.29-q.y*.19)*.54;
+        float wave=sin(q.y*2.1+swell+clock*.56)+.45*sin(q.x*.82-q.y*1.8-clock*.31);
+        float shelf=smoothstep(-.8,.95,sin(q.x*.27+q.y*.21)+.47*sin(q.x*.5-q.y*.24));
+        float foam=smoothstep(1.17,1.44,wave)*(.16+.40*shelf);
+        float gleam=.07+.17*shelf+foam;
+        if(biome>1.5){
+          float seam=abs(sin(q.x*.68+sin(q.y*.91)+q.y*.64));
+          gleam=.035+.13*shelf+(.53+.27*sin(clock*.9+q.y*.7))*(1.-smoothstep(0.,.085,seam));
+        }else if(biome>.5){
+          float seam=abs(sin(q.x*.82+q.y*.6+sin(q.y*.55)));
+          gleam=.20+.25*shelf+.19*(1.-smoothstep(0.,.075,seam))+foam*.2;
+        }
+        float shore=abs(q.x-lateralBend(pos.z));
+        vec3 c=mix(deep,crest,clamp(gleam,0.,1.));
+        c*=mix(.62,1.,smoothstep(5.6,9.7,shore));
+        gl_FragColor=vec4(c,1.);
       #include <colorspace_fragment>
       }`,
     }),
   );
   water.rotation.x = -Math.PI / 2;
   water.position.set(0, -3.7, -43);
+  water.material.userData.unbent = true;
   root.add(water);
   const terrainAssets = new Map(),
     scenic = new Map(),
+    landmarks = new Map(),
     live = new Map(),
     matrix = new THREE.Matrix4();
   let region, features;
@@ -416,7 +503,18 @@ export function createTerrainArt(root) {
     g.add(base);
     const sections = (template.sections || []).map((part) => part.clone());
     for (const section of sections) g.add(section);
-    let leaf, arrows, label;
+    let leaf, arrows, label, drop;
+    if (template.halo) {
+      drop = {
+        halo: template.halo.clone(),
+        tint: template.tint.clone(),
+        sweep: template.sweep.clone(),
+      };
+      for (const mesh of Object.values(drop)) g.add(mesh);
+      drop.tint.position.y = 0.038;
+      drop.halo.position.y = 0.044;
+      drop.sweep.position.y = 0.048;
+    }
     const chains = [];
     if (template.deck) {
       leaf = template.deck.clone();
@@ -450,23 +548,36 @@ export function createTerrainArt(root) {
         chains.push(m);
       }
     root.add(g);
-    return { g, base, leaf, arrows, chains, sections, label };
+    return { g, base, leaf, arrows, chains, sections, label, drop };
   }
   function update(s) {
     const theme = s.route.theme;
     if (theme !== region) {
-      if (region) scenic.get(region).visible = false;
+      if (region) {
+        scenic.get(region).visible = false;
+        landmarks.get(region).visible = false;
+      }
       region = theme;
       if (!scenic.has(theme)) {
         const m = new THREE.InstancedMesh(outlook(theme), metal, 10);
         m.frustumCulled = false;
+        const landmark = new THREE.InstancedMesh(roadside(theme), metal, 3);
+        landmark.frustumCulled = false;
+        landmarks.set(theme, landmark);
+        root.add(landmark);
         scenic.set(theme, m);
         root.add(m);
       }
       scenic.get(theme).visible = true;
+      landmarks.get(theme).visible = true;
+      water.material.uniforms.biome.value = theme === 'cinder' ? 2 : theme === 'ice' ? 1 : 0;
       water.material.uniforms.deep.value.set(landscapes[theme].deep);
       water.material.uniforms.crest.value.set(landscapes[theme].glint);
     }
+    const landmark = landmarks.get(theme);
+    for (let i = 0; i < landmark.count; i++)
+      landmark.setMatrixAt(i, matrix.makeTranslation(0, 0, -36 - i * 47 + (s.distance % 47)));
+    landmark.instanceMatrix.needsUpdate = true;
     const scenery = scenic.get(theme);
     for (let i = 0; i < 10; i++)
       scenery.setMatrixAt(i, matrix.makeTranslation(0, 0, 12 - i * 10 + (s.distance % 10)));
@@ -492,6 +603,37 @@ export function createTerrainArt(root) {
       live.set(p, v);
       v.g.visible = true;
       v.g.position.set(p.x, 0, p.z);
+      if (v.drop) {
+        const warning = p.state === 'warning',
+          landed = p.state === 'landed';
+        v.g.visible = warning || (landed && p.age < 0.85);
+        if (!v.g.visible) continue;
+        const fall = p.fallProgress || 0,
+          age = p.age;
+        const radius = p.radius;
+        v.drop.halo.visible = v.drop.tint.visible = warning;
+        v.drop.halo.scale.setScalar(radius);
+        v.drop.tint.scale.setScalar(radius);
+        v.drop.sweep.visible = warning || age < 0.38;
+        v.drop.sweep.scale.setScalar(
+          radius *
+            (warning
+              ? 0.1 + 0.88 * p.progress
+              : 1 + 0.77 * THREE.MathUtils.smoothstep(age, 0, 0.38)),
+        );
+        v.base.visible = true;
+        if (warning) {
+          const overhead = 7.9 + 10 * (1 - THREE.MathUtils.smoothstep(p.progress, 0.08, 0.71));
+          v.base.position.y = overhead * (1 - fall * fall);
+          v.base.rotation.set(0.12 * (1 - fall), 0.39 * (1 - fall), 0.13 * (1 - fall));
+          v.base.scale.setScalar(1);
+        } else {
+          const bounce = Math.sin(age * 20) * Math.exp(-age * 10);
+          v.base.position.y = Math.abs(bounce) * 0.32;
+          v.base.rotation.set(0.08 * bounce, 0, 0.14 * bounce);
+          v.base.scale.setScalar(1 - THREE.MathUtils.smoothstep(age, 0.34, 0.83));
+        }
+      }
       if (p.kind === 'cover') {
         const fraction = p.hp / p.maxHp;
         v.sections.forEach((part, i) => {

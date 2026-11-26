@@ -1,4 +1,4 @@
-import { laneCenter, laneWidth } from './campaign.js';
+import { campaign, laneCenter, laneWidth } from './campaign.js';
 
 export const cardWidth = laneWidth - 0.4;
 // These use the same painted sign, moulding and shadows as the original blue and gold cards.
@@ -23,7 +23,8 @@ export const supplies = {
 
 export { lastStage } from './campaign.js';
 export function makeCard(x, at, type, stage) {
-  const hp = supplies[type].hp + (type === 'plus' ? Math.min(8, stage - 1) : (stage - 1) * 1.05);
+  const base = supplies[type].hp + (type === 'plus' ? Math.min(8, stage - 1) : (stage - 1) * 1.05);
+  const hp = Math.round(base * (0.66 + 0.34 * campaign[stage - 1].pressure));
   return { x, at, z: -at, type, hp, maxHp: hp, active: true, flash: 0 };
 }
 
@@ -39,6 +40,24 @@ const exchanges = [
   [1, -1, 'crates', 'reserve', 'rapid'],
   [-1, 0, 'shutter', 'longshot', 'range'],
 ];
+// The first sortie repeats a small vocabulary: recruit, upgrade, then use a charge
+// to break a dense pack. Later chapters deploy the full assortment.
+const trainingOffers = [
+  [0, 1, 'glass', 'range', 'plus'],
+  [1, -1, null, 'merge', 'squad'],
+  [-1, 0, 'glass', 'blast', 'squad'],
+  [0, 1, null, 'squad', 'range'],
+];
+// The siege puts most reinforcements behind cover. Staying in one firing lane
+// gives a safer weapon pickup, while opening a side depot can build a larger squad.
+const siegeOffers = [
+  [0, 1, 'glass', 'plasma', 'plus'],
+  [1, 0, 'crates', 'squad', 'shield'],
+  [0, -1, 'shutter', 'longshot', 'blast'],
+  [-1, 1, 'glass', 'drone', 'rapid'],
+  [1, 0, 'shutter', 'reserve', 'range'],
+  [0, -1, 'crates', 'medic', 'shield'],
+];
 export function courseCards(stage, terrain = []) {
   const gates = [];
   function add(lane, at, type) {
@@ -49,10 +68,17 @@ export function courseCards(stage, terrain = []) {
   add(0, 11, 'plus');
   add(-1, 16, 'merge');
   add(1, 25, 'squad');
+  if (stage === 1) add(0, 28, 'blast');
+  if (stage === 8) add(0, 29, 'reserve');
   for (let i = 0; i < 10; i++) {
     const at = 36 + i * 16.2;
-    const [prize, quick, cover, reward, pickup] =
-      exchanges[(i + (stage - 1) * 2) % exchanges.length];
+    let offer = exchanges[(i + (stage - 1) * 2) % exchanges.length];
+    if (stage === 10) offer = siegeOffers[i % siegeOffers.length];
+    if (stage === 1) offer = trainingOffers[i % trainingOffers.length];
+    if (stage === 8 && i < 2) offer = trainingOffers[i];
+    const [prize, quick, cover, reward] = offer;
+    // The two rockfall routes offer the quarry's relief crew before the first impact.
+    const pickup = (stage === 12 || stage === 15) && i === 1 ? 'reserve' : offer[4];
     const mirror = stage % 2 ? 1 : -1;
     const room = (lane, front, back) =>
       !terrain.some(
@@ -65,7 +91,8 @@ export function courseCards(stage, terrain = []) {
     const prizeLane = lanes.find((lane) => room(lane, at - 3.6, at));
     if (prizeLane !== undefined) {
       const card = add(prizeLane, at, reward);
-      card.coverSpec = { kind: 'cover', variant: cover, lane: prizeLane, at: at - 3.6, reward };
+      if (cover)
+        card.coverSpec = { kind: 'cover', variant: cover, lane: prizeLane, at: at - 3.6, reward };
     }
     const quickAt = at + (i % 2 ? 1.8 : -0.9);
     const quickLane = [quick * mirror, 0, -1, 1].find(

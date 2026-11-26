@@ -3,6 +3,7 @@ import { block, part, combine } from './scenery-mesh.js';
 import { createTerrainArt } from './terrain-art.js';
 import { landscapes } from './campaign.js';
 import { cardWidth, supplies } from './supplies.js';
+import { makeSignTexture } from './supply-art.js';
 
 const ROAD_WIDTH = 13.2;
 const NEAR = 14;
@@ -15,17 +16,18 @@ function makeDeckTexture(theme) {
   const colors = landscapes[theme];
   const base = parseInt(colors.floor.slice(1), 16);
   const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 192;
+  canvas.width = 512;
+  canvas.height = 384;
   const ctx = canvas.getContext('2d');
   const pixels = ctx.createImageData(canvas.width, canvas.height);
   let seed = 941;
   for (let y = 0; y < canvas.height; y++) {
     for (let x = 0; x < canvas.width; x++) {
       seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
-      const grain = (seed / 4294967296 - 0.5) * 3;
+      const grain = (seed / 4294967296 - 0.5) * 5.2;
       const edge = Math.min(x, canvas.width - 1 - x);
-      const shade = grain - Math.max(0, 1 - edge / 4) * 12;
+      const shade =
+        grain + 1.1 * Math.cos(x * 0.069 + Math.sin(y * 0.049)) - Math.max(0, 1 - edge / 12) * 16;
       const index = (y * canvas.width + x) * 4;
       pixels.data[index] = (base >> 16) + shade;
       pixels.data[index + 1] = ((base >> 8) & 255) + shade;
@@ -34,6 +36,7 @@ function makeDeckTexture(theme) {
     }
   }
   ctx.putImageData(pixels, 0, 0);
+  ctx.scale(2, 2);
   ctx.fillStyle = 'rgba(81,74,91,.21)';
   ctx.fillRect(0, 0, canvas.width, 1.5);
   ctx.fillStyle = 'rgba(244,236,233,.36)';
@@ -52,7 +55,36 @@ function makeDeckTexture(theme) {
     ctx.lineTo(xx, yy);
     ctx.stroke();
   };
-  if (theme === 'timber') {
+  if (theme === 'quay') {
+    // Concrete expansion joints and inset service grates stay at the shoulder.
+    // Twin damp wheel marks give the slab depth without competing with drops.
+    for (const x of [21, 63, 105, 149, 193, 235]) {
+      const wash = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
+      wash.addColorStop(0, 'rgba(93,91,91,0)');
+      wash.addColorStop(0.48, 'rgba(93,91,91,.075)');
+      wash.addColorStop(1, 'rgba(93,91,91,0)');
+      ctx.fillStyle = wash;
+      ctx.fillRect(x - 6, 0, 12, 192);
+    }
+    line(0, 96, 256, 96, 'rgba(91,91,100,.32)', 1.05);
+    line(0, 97.5, 256, 97.5, 'rgba(255,249,238,.40)');
+    for (const [x, y] of [
+      [6, 41],
+      [246, 137],
+    ]) {
+      ctx.fillStyle = '#898b8a';
+      ctx.fillRect(x, y, 4.1, 13);
+      for (let j = 1; j < 13; j += 2) line(x + 0.45, y + j, x + 3.7, y + j, '#555f65', 0.72);
+    }
+    for (const [x, y] of [
+      [28, 5],
+      [112, 100],
+      [228, 100],
+    ]) {
+      line(x, y, x + 3, y + 2, 'rgba(84,87,92,.24)', 0.75);
+      line(x + 3, y + 2, x + 6, y + 1, 'rgba(84,87,92,.19)', 0.6);
+    }
+  } else if (theme === 'timber') {
     for (let i = 0; i < 8; i++) {
       let y = i * 24;
       line(0, y, 256, y, colors.joint, 2);
@@ -92,6 +124,21 @@ function makeDeckTexture(theme) {
       line(x + 7, y + 7, x + 17, y + 6, '#a0c4d7');
     }
   }
+  // A thin gutter, metal join plates and inset reflectors define the deck
+  // shoulder at phone scale; the two interior seams carry the lane markings.
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? 1.6 : 250.6;
+    ctx.fillStyle = 'rgba(46,55,64,.32)';
+    ctx.fillRect(x, 0, 3.8, 192);
+    ctx.fillStyle = 'rgba(239,230,203,.58)';
+    ctx.fillRect(x + 0.7, 0, 0.8, 192);
+    for (const y of [28, 125]) {
+      ctx.fillStyle = '#626c6d';
+      ctx.fillRect(x - 0.5, y, 5.2, 10);
+      ctx.fillStyle = colors.rim;
+      ctx.fillRect(x + 0.65, y + 2.1, 2.7, 3.7);
+    }
+  }
   for (const x of [256 / 3, 512 / 3]) {
     ctx.fillStyle = colors.line;
     ctx.fillRect(x - 1.7, 0, 3.4, 192);
@@ -104,6 +151,7 @@ function makeDeckTexture(theme) {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
   texture.repeat.y = LENGTH / 8;
   return texture;
 }
@@ -114,7 +162,7 @@ function makeRoad(group, terrain) {
   const texture = makeDeckTexture('quay');
   textures.set('quay', texture);
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(ROAD_WIDTH, LENGTH),
+    new THREE.PlaneGeometry(ROAD_WIDTH, LENGTH, 1, 100),
     new THREE.MeshLambertMaterial({ map: texture }),
   );
   floor.rotation.x = -Math.PI / 2;
@@ -122,13 +170,14 @@ function makeRoad(group, terrain) {
   floor.receiveShadow = true;
   group.add(floor);
 
-  const trim = [part(block(ROAD_WIDTH + 0.13, 0.38, LENGTH), '#535568', 0, -0.205, MIDPOINT)];
+  const rail = (width, height) => new THREE.BoxGeometry(width, height, LENGTH, 1, 1, 100);
+  const trim = [part(rail(ROAD_WIDTH + 0.13, 0.38), '#535568', 0, -0.205, MIDPOINT)];
   for (const side of [-1, 1]) {
     const edge = (side * ROAD_WIDTH) / 2;
-    trim.push(part(block(0.13, 0.19, LENGTH), '#7c7b8a', edge, 0.018, MIDPOINT));
-    trim.push(part(block(0.095, 0.042, LENGTH), '#a6a1af', edge + side * 0.01, 0.121, MIDPOINT));
-    trim.push(part(block(0.055, 0.22, LENGTH), '#444759', edge + side * 0.074, -0.14, MIDPOINT));
-    trim.push(part(block(0.048, 0.022, LENGTH), '#8b8391', edge - side * 0.085, 0.006, MIDPOINT));
+    trim.push(part(rail(0.13, 0.19), '#7c7b8a', edge, 0.018, MIDPOINT));
+    trim.push(part(rail(0.095, 0.042), '#a6a1af', edge + side * 0.01, 0.121, MIDPOINT));
+    trim.push(part(rail(0.055, 0.22), '#444759', edge + side * 0.074, -0.14, MIDPOINT));
+    trim.push(part(rail(0.048, 0.022), '#8b8391', edge - side * 0.085, 0.006, MIDPOINT));
   }
   const edging = new THREE.Mesh(
     combine(trim),
@@ -146,42 +195,6 @@ function makeRoad(group, terrain) {
     }
     floor.material.map.offset.y = (s.distance / 8) % 1;
   };
-}
-
-function makeSignTexture(type) {
-  const merge = supplies[type].tone === 'gold';
-  const canvas = document.createElement('canvas');
-  canvas.width = 704;
-  canvas.height = 208;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  const gradient = ctx.createLinearGradient(0, 0, 0, h);
-  gradient.addColorStop(0, merge ? '#ffe749' : '#40afff');
-  gradient.addColorStop(0.1, merge ? '#ffdd22' : '#269bfa');
-  gradient.addColorStop(0.68, merge ? '#ffd419' : '#178cf0');
-  gradient.addColorStop(1, merge ? '#efbb09' : '#1276d7');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, w, h);
-  const label = supplies[type].label;
-  const fontSize = supplies[type].count ? 151 : 122;
-  ctx.font = `900 ${fontSize}px "Arial Rounded MT Bold","Arial Black","PingFang SC","Microsoft YaHei",sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  const metrics = ctx.measureText(label);
-  const baseline = h / 2 + (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
-  ctx.translate(w / 2, baseline + 1);
-  ctx.scale(Math.min(1.05, (w * 0.85) / metrics.width), 1);
-  ctx.lineWidth = merge ? 15 : 18;
-  ctx.strokeStyle = '#17212b';
-  ctx.strokeText(label, 0, 0);
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(label, 0, 0);
-  const map = new THREE.CanvasTexture(canvas);
-  map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 4;
-  return map;
 }
 
 // Soft-edged contact and directional shadows share the same instance transform as their board.
@@ -226,15 +239,17 @@ function gateBatch(group, type, shadowMaterial) {
   const w = cardWidth;
   const h = 1.09;
   const depth = 0.17;
-  const shell = merge ? '#ffd526' : '#2095ef';
-  const sideTrim = merge ? '#e8aa10' : '#1e76ce';
-  const highlight = merge ? '#ffe663' : '#55b4ff';
+  const shell = merge ? '#b77e39' : '#345565';
+  const sideTrim = '#323e42';
+  const highlight = merge ? '#f0bf68' : '#7db7ba';
   const feet = [];
   const panels = [part(block(w - 0.1, h, depth, 0.047), shell, 0, h / 2, 0)];
   for (const sign of [-1, 1]) {
     const x = sign * (w / 2 - 0.046);
     panels.push(part(block(0.085, h + 0.087, 0.205), highlight, x, h / 2 + 0.021, 0));
-    feet.push(part(block(0.16, 0.115, 0.33), sideTrim, x, 0.057, 0.058));
+    feet.push(part(block(0.23, 0.13, 0.4, 0.035), sideTrim, x, 0.065, 0.058));
+    panels.push(part(block(0.13, 0.19, 0.23, 0.027), sideTrim, x, h - 0.04, 0));
+    panels.push(part(block(0.115, 0.044, 0.24), highlight, x, h - 0.09, 0));
   }
   panels.push(part(block(w - 0.16, 0.047, 0.123), highlight, 0, h - 0.012, -0.003));
   const inclined = combine(panels);
@@ -247,7 +262,7 @@ function gateBatch(group, type, shadowMaterial) {
   face.translate(0, 0.059, 0.015);
   const geometries = [shellGeometry, face, castShadow(w, h)];
   const materials = [
-    new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 52, specular: 0x635b61 }),
+    new THREE.MeshPhongMaterial({ vertexColors: true, shininess: 52, specular: 0x676352 }),
     new THREE.MeshBasicMaterial({ map: makeSignTexture(type), toneMapped: false }),
     shadowMaterial,
   ];
@@ -499,11 +514,11 @@ function makeWall(group, shadowMaterial) {
   };
 }
 
-export function createCourseArt(scene) {
+export function createCourseArt(scene, curve) {
   const root = new THREE.Group();
   root.name = 'Course';
   scene.add(root);
-  const terrain = createTerrainArt(root);
+  const terrain = createTerrainArt(root, curve);
   const updateRoad = makeRoad(root, terrain);
   const shadowMaterial = new THREE.MeshBasicMaterial({
     color: 0x30324b,
@@ -522,7 +537,7 @@ export function createCourseArt(scene) {
   root.add(meters);
   const meterTransform = new THREE.Matrix4(),
     ink = new THREE.Color('#253347'),
-    white = new THREE.Color('#f5fffe');
+    white = new THREE.Color('#9ff9d9');
   const lockGeometry = combine([
     part(block(0.43, 0.32, 0.1, 0.04), '#3e505d', 0, 0, 0.01),
     part(new THREE.TorusGeometry(0.132, 0.045, 7, 18, Math.PI), '#ffe3a2', 0, 0.13, 0.04),

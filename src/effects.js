@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { plasmaRound, pulseRound, sampleFlight } from './projectiles.js';
+import { supplies } from './supplies.js';
 import { slamRadius } from './brawler-motion.js';
 
 const TILE = 128;
@@ -678,17 +679,26 @@ export function createEffects(scene) {
   blast.visible = false;
   scene.add(blast);
   let blastTime = 1;
-  function burst(kind, x, y, z, strength = 1) {
+  function burst(kind, x, y, z, strength = 1, supply = null) {
+    const rewardColor = supplies[supply]?.tone === 'gold' ? palette.gold : palette.surf;
     const s = clamp(strength, 0.62, 2.05);
     switch (kind) {
       case 'cardHit':
-        add(sprites.glint, x, y, z + 0.1, 0.35, 0.7, 0.12, { color: palette.pearl });
+        add(sprites.glint, x, y, z + 0.1, 0.33, 0.72, 0.12, { color: rewardColor });
         scatterSparks(x, y, z, 0.45, 3);
         return;
       case 'supplyBreak':
         add(sprites.flash, x, y, z, 0.46, 1.45, 0.13, { color: palette.pearl });
-        add(sprites.wave, x, 0.07, z, 0.4, 2.45, 0.32, { flat: true, color: palette.aqua });
-        scatterSparks(x, y, z, 0.86, 10);
+        add(sprites.wave, x, 0.07, z, 0.42, 2.9, 0.36, { flat: true, color: rewardColor });
+        for (const side of [-1, 1]) {
+          add(sprites.glint, x + side * 1.44, y, z, 0.48, 0.1, 0.33, {
+            color: rewardColor,
+            vx: -side * 3.6,
+            vy: 1.1,
+            ratio: 1.6,
+          });
+        }
+        scatterSparks(x, y, z, 0.73, 6);
         return;
       case 'shieldHit':
         add(sprites.wave, x, 0.1, z, 0.4, 1.75, 0.26, { flat: true, color: palette.aqua });
@@ -854,6 +864,27 @@ export function createEffects(scene) {
         return;
       }
       case 'merge': {
+        if (supply === 'range' || supply === 'longshot') {
+          for (let i = 0; i < 3; i++) {
+            add(
+              sprites.arrow,
+              x,
+              0.12,
+              z - 0.8 - i * 0.68,
+              0.72 - i * 0.09,
+              0.22,
+              0.48 + i * 0.04,
+              {
+                flat: true,
+                color: rewardColor,
+                vz: -3.3,
+                world: false,
+              },
+            );
+          }
+          add(sprites.wave, x, 0.07, z, 0.32, 2.45, 0.35, { flat: true, color: rewardColor });
+          return;
+        }
         add(sprites.goldWave, x, 0.12, z, 2.15, 0.32, 0.27, { flat: true, color: palette.gold });
         const floorSize = clamp(s * 1.55, 1.5, 2.5);
         add(sprites.goldWave, x, 0.061, z, 0.38, floorSize, 0.46, {

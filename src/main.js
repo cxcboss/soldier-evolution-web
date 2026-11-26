@@ -1,6 +1,6 @@
 import { Battle } from './battle.js';
 import { supplies, lastStage } from './supplies.js';
-import { campaign } from './campaign.js';
+import { campaign, chapters } from './campaign.js';
 import { bosses } from './boss-skills.js';
 import { makeView } from './view.js';
 import { createAudio } from './audio.js';
@@ -69,21 +69,61 @@ function soundLabel() {
 soundLabel();
 const battle = new Battle((e) => {
   if (e.kind !== 'smallShot' && e.kind !== 'loss') view?.feedback(e);
-  audio.play(e.kind, e.strength);
+  audio.play(e.kind, e.strength, e.supply);
 });
 const requestedStage = Number(new URL(location.href).searchParams.get('stage'));
 if (Number.isInteger(requestedStage) && requestedStage >= 1 && requestedStage <= lastStage)
   battle.reset(requestedStage);
-for (const route of campaign) {
-  const button = document.createElement('button'),
-    number = document.createElement('b');
-  number.textContent = String(route.number).padStart(2, '0');
-  button.append(number, document.createTextNode(route.name));
-  button.dataset.level = route.number;
-  button.setAttribute('aria-label', '第 ' + route.number + ' 关 ' + route.name);
-  button.addEventListener('click', () => restart(route.number));
-  $('stageList').append(button);
+function missionLabel(route) {
+  return route.chapter.name + (route.number === 10 ? ' · 高难' : '');
 }
+$('missionNumber').textContent = String(battle.stage).padStart(2, '0');
+$('missionChapter').textContent = missionLabel(battle.route);
+$('missionName').textContent = battle.route.name;
+for (const chapter of chapters) {
+  const group = document.createElement('section');
+  group.className = 'chapter';
+  group.dataset.theme = chapter.theme;
+  const heading = document.createElement('header');
+  heading.className = 'chapter-heading';
+  const title = document.createElement('h3');
+  title.textContent = chapter.name;
+  const span = document.createElement('span');
+  span.textContent = String(chapter.first).padStart(2, '0') + ' — ' + String(chapter.last).padStart(2, '0');
+  heading.append(title, span);
+  const stops = document.createElement('div');
+  stops.className = 'chapter-stages';
+  for (const route of campaign.slice(chapter.first - 1, chapter.last)) {
+    const button = document.createElement('button');
+    const number = document.createElement('b');
+    number.textContent = String(route.number).padStart(2, '0');
+    const name = document.createElement('span');
+    name.className = 'stop-name';
+    name.textContent = route.name;
+    button.dataset.level = route.number;
+    button.setAttribute('aria-label', '第 ' + route.number + ' 关 ' + route.name);
+    button.append(number, name);
+    if (route.number === 10) {
+      const badge = document.createElement('small');
+      badge.className = 'siege-label';
+      badge.textContent = '高难';
+      button.append(badge);
+      button.dataset.hard = '';
+      button.setAttribute('aria-label', '第 10 关 ' + route.name + ' 高难');
+    }
+    button.addEventListener('click', () => restart(route.number));
+    stops.append(button);
+  }
+  group.append(heading, stops);
+  $('stageList').append(group);
+}
+$('stageList').addEventListener('keydown', (e) => {
+  const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -5, ArrowDown: 5 };
+  if (!Object.prototype.hasOwnProperty.call(steps, e.code) || !e.target.dataset.level) return;
+  const next = Math.min(lastStage, Math.max(1, +e.target.dataset.level + steps[e.code]));
+  e.preventDefault();
+  $('stageList').querySelector('[data-level="' + next + '"]').focus();
+});
 function release() {
   keys.clear();
   activePointer = null;
@@ -140,16 +180,24 @@ function showPanel(which) {
   panel = which;
   needsPaint = true;
   dlg.hidden = false;
+  stage.querySelector('.hud').inert = true;
+  startPanel.inert = true;
+  const panelKind = which === 'result' ? battle.phase : which;
+  const panelIcons = { art: 'art', levels: 'map', pause: 'pause', won: 'medal', lost: 'retreat' };
+  $('dialog').dataset.panel = panelKind;
+  $('dialogIcon').setAttribute('href', '#i-' + panelIcons[panelKind]);
+  $('dialogChapter').textContent = which === 'levels' ? '港区远征' : missionLabel(battle.route);
+  $('resultStats').hidden = which !== 'result';
   $('options').hidden = which !== 'art';
   $('stageList').hidden = which !== 'levels';
   $('dialog').classList.toggle('levels', which === 'levels');
   $('selectStage').hidden = which !== 'pause' && which !== 'result';
   if (which === 'levels') {
     audio.pause();
-    $('dialogTitle').textContent = '选择关卡';
+    $('dialogTitle').textContent = '战役地图';
     $('detail').textContent = '';
     $('continue').textContent = '返回';
-    for (const button of $('stageList').children)
+    for (const button of $('stageList').querySelectorAll('[data-level]'))
       button.setAttribute('aria-current', String(+button.dataset.level === battle.stage));
   }
   $('secondary').hidden = which !== 'pause';
@@ -168,10 +216,13 @@ function showPanel(which) {
   }
   if (which === 'result') {
     const win = battle.phase === 'won';
+    const seconds = Math.floor(battle.elapsed);
+    $('resultKills').textContent = battle.score;
+    $('resultTime').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
     if (win) {
       $('dialogTitle').textContent =
         battle.stage === lastStage ? '全部通关' : `第 ${battle.stage} 关通过`;
-      $('detail').textContent = `小队已穿过战场，共击倒 ${battle.score} 名红兵。`;
+      $('detail').textContent = battle.stage < lastStage ? '下一站 · ' + campaign[battle.stage].name : '小队已完成全部航线。';
     } else {
       const losses = {
         signature: [
@@ -181,6 +232,7 @@ function showPanel(which) {
         bossShot: ['队长出局', '队长被 Boss 的弹幕击倒。'],
         gap: ['队长坠桥', '遇到缺口时，提前换道，或带上架桥补给。'],
         infantry: ['小队全灭', '红兵已越过防线。'],
+        skyfall: ['队长出局', '队长被落下的重物击中。'],
         wall: ['队长出局', '队长被硬墙推出了跑道。'],
         breach: ['防线失守', 'Boss 突破了防线。'],
         slam: ['队长出局', '队长被 Boss 的落地冲击击倒。'],
@@ -206,6 +258,8 @@ function hidePanel() {
   panel = null;
   returnPanel = null;
   dlg.hidden = true;
+  stage.querySelector('.hud').inert = false;
+  startPanel.inert = false;
   accumulator = 0;
 }
 function resume() {
@@ -259,19 +313,20 @@ canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   activePointer = {
     id: e.pointerId,
-    start: e.clientX,
-    startY: e.clientY,
-    world: battle.targetX,
-    back: battle.targetZ,
+    x: e.clientX,
+    y: e.clientY,
   };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!activePointer || e.pointerId !== activePointer.id || panel) return;
   battle.aim(
-    activePointer.world + ((e.clientX - activePointer.start) * 14.8) / stage.clientWidth,
-    activePointer.back + ((e.clientY - activePointer.startY) * 11) / stage.clientHeight,
+    battle.targetX + ((e.clientX - activePointer.x) * 14.8) / stage.clientWidth,
+    battle.targetZ + ((e.clientY - activePointer.y) * 11) / stage.clientHeight,
   );
+  // Discard overtravel at either rail so a thumb reversal moves the squad immediately.
+  activePointer.x = e.clientX;
+  activePointer.y = e.clientY;
 });
 function endPointer(e) {
   if (e.pointerId === activePointer?.id) activePointer = null;
@@ -327,13 +382,35 @@ document.addEventListener('visibilitychange', () => {
 });
 let lastCount = -1,
   lastPower = -1,
-  lastHP = -1;
+  lastHP = -1,
+  lastProgress = -1;
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function updateStat(id, current, previous) {
+  if (current === previous) return;
+  const value = $(id);
+  value.textContent = current;
+  if (!battle.playing || previous < 0 || reducedMotion.matches || !value.animate) return;
+  for (const animation of value.getAnimations()) animation.cancel();
+  value.animate(
+    [
+      { transform: 'scale(1.17)', color: current > previous ? '#ffe097' : '#ffa488' },
+      { transform: 'scale(1)', color: '#fff9e9' },
+    ],
+    { duration: 240, easing: 'ease-out' },
+  );
+}
 function hud() {
   const n = battle.allies.length,
     power = battle.cannonDamage;
   const level = $('level');
   const levelText = '第 ' + battle.stage + ' 关';
-  if (level.textContent !== levelText) level.textContent = levelText;
+  if ($('levelText').textContent !== levelText) $('levelText').textContent = levelText;
+  const progress = Math.min(100, Math.floor((100 * battle.row) / battle.finaleRow));
+  if (progress !== lastProgress) {
+    $('progress').firstElementChild.style.transform = 'scaleX(' + progress / 100 + ')';
+    $('progress').setAttribute('aria-valuenow', String(progress));
+    lastProgress = progress;
+  }
   level.title = battle.route.name + ' · 选择关卡';
   const active = Object.entries(battle.buffs).filter(([, time]) => time > 0);
   const activeText = active
@@ -349,14 +426,10 @@ function hud() {
   const buffs = $('buffs');
   if (buffs.textContent !== stateText) buffs.textContent = stateText;
   buffs.hidden = !stateText || !battle.playing;
-  if (n !== lastCount) {
-    $('count').textContent = n;
-    lastCount = n;
-  }
-  if (power !== lastPower) {
-    $('power').textContent = power;
-    lastPower = power;
-  }
+  updateStat('count', n, lastCount);
+  updateStat('power', power, lastPower);
+  lastCount = n;
+  lastPower = power;
   stage.dataset.phase = battle.phase;
   const armor = $('armorMeter');
   armor.hidden = !battle.playing || battle.armor === 3;
@@ -478,7 +551,7 @@ async function boot() {
     ready = true;
     stage.dataset.phase = 'ready';
     startButton.disabled = false;
-    startButton.lastElementChild.textContent = '开始游戏';
+    startButton.lastElementChild.textContent = '开始出击';
     requestAnimationFrame(loop);
   } catch (error) {
     console.error(error);

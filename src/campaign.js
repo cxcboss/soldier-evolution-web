@@ -4,13 +4,13 @@ export const laneCenter = (lane) => laneWidth * lane;
 export const laneName = (lane) => ['左路', '中路', '右路'][lane + 1];
 export const landscapes = {
   quay: {
-    floor: '#c6bac1',
-    joint: '#a699a6',
-    line: '#8e7f8f',
-    rim: '#fff2dc',
-    deep: '#1e5368',
-    glint: '#73b3b0',
-    frame: '#517180',
+    floor: '#bdbfb6',
+    joint: '#99a39c',
+    line: '#798880',
+    rim: '#ffedc4',
+    deep: '#1e5462',
+    glint: '#84c4b5',
+    frame: '#4b7480',
   },
   timber: {
     floor: '#c69968',
@@ -58,6 +58,16 @@ export const landscapes = {
     frame: '#6e5261',
   },
 };
+export const chapters = [
+  ['灯塔外港', 'quay'],
+  ['悬索林谷', 'timber'],
+  ['回声矿峡', 'quarry'],
+  ['钢铁船坞', 'forge'],
+  ['极光冰河', 'ice'],
+  ['熔心裂谷', 'cinder'],
+].map(([name, theme], i) => ({ number: i + 1, name, theme, first: i * 5 + 1, last: i * 5 + 5 }));
+
+const skyfall = (lane, at) => ({ kind: 'skyfall', lane, at, radius: 1.82 });
 const gap = (lane, at, length = 3.6) => ({ kind: 'gap', lane, at, length });
 const bridge = (lane, at) => ({ kind: 'bridge', lane, at, length: 4.4 });
 const cache = (lane, at, reward = 'reserve') => ({ kind: 'cache', lane, at, reward });
@@ -67,85 +77,96 @@ const belt = (lane, at, direction) => ({ kind: 'belt', lane, at, direction, leng
 // Three positions per beat leave at least one safe lane. Repeated mechanisms switch
 // sides, change neighbours or play a different role in the next encounter.
 const routes = [
-  ['港口外桥', 'quay', 'bruiser', false, [cache(-1, 59, 'squad')]],
-  ['断木栈桥', 'timber', 'diver', true, [gap(1, 42), cache(-1, 75, 'engineer')]],
-  ['吊索码头', 'quay', 'warden', false, [bridge(1, 49), cache(-1, 83, 'medic')]],
-  ['采石岔道', 'quarry', 'drill', false, [cache(1, 37, 'reserve'), gap(-1, 65), coil(0, 94)]],
-  ['结冰的货线', 'ice', 'kestrel', true, [belt(-1, 41, 1), gap(1, 69), cache(0, 89, 'frost')]],
-  ['铸铁船坞', 'forge', 'engine', false, [coil(-1, 39), bridge(1, 68), cache(-1, 96, 'engineer')]],
+  ['港口外桥', 'bruiser', false, [cache(-1, 59, 'squad')]],
+  ['卸货栈桥', 'diver', true, [gap(1, 42), cache(-1, 75, 'engineer')]],
+  ['吊索码头', 'warden', false, [bridge(1, 49), cache(-1, 83, 'medic')]],
+  ['海堤岔口', 'drill', false, [cache(1, 37, 'reserve'), gap(-1, 65), coil(0, 94)]],
+  ['灯塔航道', 'kestrel', true, [belt(-1, 41, 1), gap(1, 69), cache(0, 89, 'frost')]],
+  [
+    '林场吊运线',
+    'engine',
+    false,
+    [skyfall(1, 55), coil(-1, 39), bridge(1, 68), cache(-1, 96, 'engineer')],
+  ],
   [
     '林间浮桥',
-    'timber',
     'bruiser',
     true,
     [gap(-1, 35), cache(1, 53, 'engineer'), gap(1, 82), belt(0, 104, -1)],
   ],
   [
-    '盐仓闸口',
-    'quay',
+    '木料闸口',
     'diver',
     false,
-    [cache(1, 37, 'medic'), bridge(-1, 60), coil(1, 82), gap(0, 105)],
+    [skyfall(-1, 73), cache(1, 37, 'medic'), bridge(-1, 60), coil(1, 82), gap(0, 105)],
   ],
   [
-    '双壁矿廊',
-    'quarry',
+    '双索峡廊',
     'warden',
     false,
     [cache(-1, 35, 'reserve'), cache(1, 55, 'frost'), gap(0, 80), bridge(-1, 105)],
   ],
   [
-    '炉前急弯',
-    'cinder',
+    '悬索封锁战',
     'drill',
     true,
-    [belt(1, 39, -1), coil(0, 61), bridge(-1, 86), cache(1, 107, 'reserve')],
+    [
+      skyfall(1, 51),
+      skyfall(0, 74),
+      skyfall(-1, 99),
+      bridge(-1, 40),
+      coil(0, 61),
+      bridge(1, 86),
+      cache(1, 107, 'reserve'),
+    ],
   ],
+  ['溪谷矿口', 'diver', true, [gap(0, 37), bridge(1, 60), cache(-1, 84, 'engineer'), gap(-1, 107)]],
   [
-    '冰河渡口',
-    'ice',
-    'diver',
-    true,
-    [gap(0, 37), bridge(1, 60), cache(-1, 84, 'engineer'), gap(-1, 107)],
-  ],
-  [
-    '钢梁接力',
-    'forge',
+    '运矿斜坡',
     'warden',
     false,
-    [belt(0, 34, 1), cache(1, 53, 'medic'), bridge(-1, 77), coil(0, 106)],
+    [skyfall(1, 64), belt(0, 34, 1), cache(1, 53, 'medic'), bridge(-1, 77), coil(0, 106)],
   ],
   [
-    '树海救援',
-    'timber',
+    '峡谷救援',
     'kestrel',
     false,
     [cache(-1, 33, 'medic'), gap(1, 58), belt(0, 80, -1), cache(-1, 105, 'reserve')],
   ],
   [
-    '潮汐双闸',
-    'quay',
+    '水闸矿道',
     'engine',
     true,
     [bridge(-1, 36), coil(1, 54), bridge(1, 81), cache(0, 108, 'frost')],
   ],
   [
-    '碎石运河',
-    'quarry',
+    '碎石转运桥',
     'drill',
     true,
-    [coil(1, 35), gap(-1, 57), cache(0, 78, 'engineer'), gap(1, 99), belt(-1, 116, 1)],
+    [
+      skyfall(0, 88),
+      coil(1, 35),
+      gap(-1, 57),
+      cache(0, 78, 'engineer'),
+      gap(1, 99),
+      belt(-1, 116, 1),
+    ],
   ],
   [
-    '灰烬转运站',
-    'cinder',
+    '码头装配线',
     'bruiser',
     false,
-    [belt(-1, 38, 1), cache(0, 52, 'reserve'), coil(1, 75), bridge(-1, 97), gap(1, 119)],
+    [
+      skyfall(1, 65),
+      belt(-1, 38, 1),
+      cache(0, 52, 'reserve'),
+      coil(1, 75),
+      bridge(-1, 97),
+      gap(1, 119),
+    ],
   ],
   [
-    '霜镜弯桥',
-    'ice',
+    '回转船台',
     'kestrel',
     true,
     [
@@ -159,45 +180,64 @@ const routes = [
   ],
   [
     '重锤装配线',
-    'forge',
     'engine',
     false,
-    [cache(1, 36, 'frost'), belt(-1, 55, 1), bridge(1, 75), coil(0, 98), cache(-1, 121, 'reserve')],
+    [
+      skyfall(0, 62),
+      skyfall(1, 110),
+      cache(1, 36, 'frost'),
+      belt(-1, 55, 1),
+      bridge(1, 75),
+      coil(0, 98),
+      cache(-1, 121, 'reserve'),
+    ],
   ],
   [
-    '悬木货架',
-    'timber',
+    '船坞吊架',
     'warden',
     true,
     [bridge(1, 37), gap(-1, 56), cache(0, 79, 'medic'), gap(1, 101), coil(-1, 123)],
   ],
   [
-    '灯塔夜航',
-    'quay',
+    '龙门夜航',
     'diver',
     true,
-    [coil(0, 34), cache(-1, 54, 'engineer'), bridge(1, 77), belt(0, 96, 1), gap(-1, 120)],
+    [
+      skyfall(-1, 65),
+      skyfall(0, 108),
+      coil(0, 34),
+      cache(-1, 54, 'engineer'),
+      bridge(1, 77),
+      belt(0, 96, 1),
+      gap(-1, 120),
+    ],
   ],
   [
-    '深井折返',
-    'quarry',
+    '冻河渡口',
     'drill',
     false,
-    [gap(1, 37), belt(0, 56, -1), cache(-1, 78, 'frost'), bridge(1, 102), coil(0, 123)],
+    [
+      skyfall(0, 67),
+      gap(1, 37),
+      belt(0, 56, -1),
+      cache(-1, 78, 'frost'),
+      bridge(1, 102),
+      coil(0, 123),
+    ],
   ],
   [
-    '炉渣长堤',
-    'cinder',
+    '浮冰长堤',
     'engine',
     true,
     [cache(-1, 35, 'reserve'), bridge(1, 54), coil(-1, 74), belt(0, 94, -1), gap(1, 119)],
   ],
   [
     '冰脊双索',
-    'ice',
     'warden',
     false,
     [
+      skyfall(1, 64),
+      skyfall(-1, 107),
       bridge(-1, 34),
       cache(1, 52, 'engineer'),
       gap(0, 72),
@@ -207,18 +247,18 @@ const routes = [
     ],
   ],
   [
-    '风轮工场',
-    'forge',
+    '极地风廊',
     'kestrel',
     true,
     [belt(1, 35, -1), coil(0, 55), belt(-1, 75, 1), cache(1, 95, 'medic'), bridge(0, 121)],
   ],
   [
-    '林谷最后一跨',
-    'timber',
+    '冰峡最后一跨',
     'diver',
     true,
     [
+      skyfall(1, 65),
+      skyfall(0, 104),
       gap(-1, 34),
       cache(1, 52, 'engineer'),
       bridge(0, 72),
@@ -228,11 +268,11 @@ const routes = [
     ],
   ],
   [
-    '外港封锁线',
-    'quay',
+    '灰烬封锁线',
     'bruiser',
     false,
     [
+      skyfall(1, 65),
       cache(1, 35, 'reserve'),
       bridge(-1, 55),
       belt(0, 75, 1),
@@ -242,11 +282,12 @@ const routes = [
     ],
   ],
   [
-    '连锁矿井',
-    'quarry',
+    '熔岩竖井',
     'drill',
     true,
     [
+      skyfall(1, 62),
+      skyfall(-1, 105),
       coil(-1, 33),
       cache(0, 51, 'frost'),
       gap(1, 72),
@@ -256,8 +297,7 @@ const routes = [
     ],
   ],
   [
-    '极夜冰堤',
-    'ice',
+    '黑曜断崖',
     'kestrel',
     true,
     [
@@ -271,10 +311,11 @@ const routes = [
   ],
   [
     '红炉三线',
-    'forge',
     'warden',
     false,
     [
+      skyfall(0, 64),
+      skyfall(-1, 108),
       bridge(1, 35),
       coil(-1, 53),
       cache(0, 73, 'reserve'),
@@ -285,10 +326,12 @@ const routes = [
   ],
   [
     '熔心终桥',
-    'cinder',
     'engine',
     true,
     [
+      skyfall(0, 63),
+      skyfall(-1, 101),
+      skyfall(0, 142),
       cache(-1, 34, 'engineer'),
       gap(1, 52),
       bridge(-1, 72),
@@ -299,17 +342,39 @@ const routes = [
     ],
   ],
 ];
-export const campaign = routes.map(([name, theme, boss, vault, features], i) => ({
-  number: i + 1,
-  name,
-  theme,
-  boss,
-  vault,
-  features,
-  finale: 226 + i * 4 + [0, 8, 3, 12, 5][i % 5],
-  restEvery: [44, 40, 48, 42, 46][i % 5],
-  restLength: 5.75 + [0.4, 1.2, 0.15, 0.7, 1.1][i % 5],
-}));
+// Pressure affects bodies per rank, breathing space, boss endurance and the cost of
+// optional destructive routes together. Stage ten is a single siege, not a permanent jump.
+const openingPressure = [0.45, 0.68, 0.53, 0.6, 0.65, 0.7, 0.76, 0.81, 0.93, 1.62];
+export const campaign = routes.map(([name, boss, vault, features], i) => {
+  const number = i + 1;
+  const chapter = chapters[Math.floor(i / 5)];
+  const pressure = openingPressure[i] ?? 0.87 + (number - 11) * 0.019;
+  const siege = number === 10;
+  const rowSpacing = 0.565 / Math.sqrt(pressure);
+  const restLength = 6.4 / pressure;
+  // Work backwards from deck length. A tutorial with sparse ranks should not last longer.
+  const approachLength = number <= 3 ? [135, 154, 144][i] : 151 + i * 2.55 + (siege ? 15 : 0);
+  const restEvery = siege ? 60 : 44;
+  const finale = Math.round(approachLength / (rowSpacing + 0.38 / 11 + restLength / restEvery));
+  return {
+    number,
+    name,
+    chapter,
+    theme: chapter.theme,
+    boss,
+    vault,
+    features,
+    pressure,
+    siege,
+    rowSpacing,
+    restEvery,
+    restLength,
+    finale,
+    bossHP: Math.round((385 + i * 26) * pressure * (siege ? 1.85 : 1)),
+    wallHP: Math.round((72 + i * 1.55) * Math.min(1.35, pressure)),
+    contactGrace: 1.24 / Math.sqrt(pressure),
+  };
+});
 export const lastStage = campaign.length;
 export function terrainPiece(spec, stage) {
   const coverHP = { glass: 21, crates: 49, shutter: 78 };
@@ -321,7 +386,10 @@ export function terrainPiece(spec, stage) {
         : spec.kind === 'bridge'
           ? 42
           : 29;
-  const hp = Math.round(baseHP + (stage - 1) * (spec.kind === 'cover' ? 0.75 : 1.15));
+  const hp = Math.round(
+    (0.56 + 0.44 * campaign[stage - 1].pressure) *
+      (baseHP + (stage - 1) * (spec.kind === 'cover' ? 0.75 : 1.15)),
+  );
   return {
     ...spec,
     x: laneCenter(spec.lane),

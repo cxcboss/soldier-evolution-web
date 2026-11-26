@@ -157,7 +157,7 @@ test('red ranks enter from above the current viewport and march past the moving 
       }
     }
     const band = units().filter((e) => e.z >= entry + 4 && e.z < entry + 25).length;
-    assert.ok(band > 310 && band < 415, 'dense packs leave space between changes of lane');
+    assert.ok(band > 120 && band < 185, 'training packs leave a visible interval to change lanes');
     assert.ok(units().some((e) => e.laneX < -3) && units().some((e) => e.laneX > 3));
   }
 });
