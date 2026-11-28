@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { createCaptain, createTroopGeometry, fieldEquipment } from './figures.js';
+import { allyGear, createCaptain, createTroopGeometry, fieldEquipment } from './figures.js';
 import { loadBrawler } from './brawler.js';
-import { slamRadius, touchdown } from './brawler-motion.js';
+import { slamRadius, slamStrike } from './brawler-motion.js';
 import { createRoadBend } from './road-bend.js';
 import { makeSupplyTokens } from './supply-art.js';
 import { createCourseArt } from './course-art.js';
@@ -11,6 +11,7 @@ import { createSpriteArt } from './sprite-art.js';
 import { createInfantryModel } from './infantry-paint.js';
 import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
 import { createAtmosphere } from './atmosphere.js';
+import { UNIT_DEFS } from './units.js';
 
 const pose = new THREE.Object3D();
 
@@ -72,10 +73,11 @@ function troops(scene, side, capacity) {
         float pivot = mix(.29,.438,arm);
         transformed.yz = jointTurn * (position.yz-vec2(pivot,0.0))+vec2(pivot,0.0);
         float boot = leg*(1.0-smoothstep(.105,.28,position.y));
-        vec2 sole = position.yz + vec2(.118*lift,facing*${footReach}*stride);
+        vec2 sole = position.yz + vec2(.126*lift,facing*${footReach}*stride);
         transformed.yz = mix(transformed.yz,sole,boot);
         transformed.y += .022*abs(stepPose.w)*(1.0-boot);
-        transformed.x += stepPose.y*.018*position.y + sign(limb)*arm*.009*stride;`,
+        // 去掉双腿横向交错晃动，抬脚时微微外展，确保双脚步伐干脆分明绝不粘连
+        transformed.x += leg*sign(limb)*(.014*lift) + (1.0-leg)*stepPose.y*.014*position.y + sign(limb)*arm*.009*stride;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying float vGlow;')
@@ -302,10 +304,23 @@ export function makeView(canvas, stage) {
 
   const camera = new THREE.PerspectiveCamera(41, 1, 0.15, 165),
     world = new THREE.Vector3();
-  const captain = createCaptain();
-  scene.add(captain.root);
-  const warning = footRing(slamRadius, slamRadius - 0.065, 0xff7b29, 0.88, scene);
-  const countdown = footRing(slamRadius, slamRadius - 0.13, 0xffcf5e, 0.44, scene);
+  // 开局绝不挂载固定队长！仅当玩家真实合成出 T3 重炮队长 / T4 钢铁指挥官时从对象池动态现身
+  const captainPool = [];
+  const titanPool = [];
+  function acquireCommander(kind, idx) {
+    const pool = kind === 'titan' ? titanPool : captainPool;
+    while (pool.length <= idx) {
+      const unit = createCaptain(kind);
+      if (kind === 'captain' && sprites) unit.paint(sprites.captainTexture, sprites.gruntTexture);
+      unit.root.visible = false;
+      scene.add(unit.root);
+      bend.markDirty();
+      pool.push(unit);
+    }
+    return pool[idx];
+  }
+  const warning = footRing(slamRadius, slamRadius - 0.085, 0xff6b24, 0.92, scene);
+  const countdown = footRing(slamRadius, slamRadius - 0.16, 0xffd24c, 0.56, scene);
 
   // 同步挂载 Boss 容器，非铁拳队长关卡无需阻塞首屏下载 1.77MB GLB
   const boss = loadBrawler();
@@ -353,6 +368,23 @@ export function makeView(canvas, stage) {
     kits[role] = mesh;
   }
 
+  // 我方特色兵种与合成大兵专属 3D 挂件装备批次（盾牌/火焰罐/电磁塔/双枪/火箭筒/磁暴炮）
+  const allyKits = {};
+  const allyKitMaterial = new THREE.MeshPhongMaterial({
+    vertexColors: true,
+    shininess: 68,
+    specular: 0x7a96b2,
+  });
+  for (const kind of ['shield', 'flame', 'tesla', 'assault', 'pyro', 'storm']) {
+    const mesh = new THREE.InstancedMesh(allyGear(kind), allyKitMaterial, 44);
+    mesh.count = 0;
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(mesh);
+    allyKits[kind] = mesh;
+  }
+
   const drawBossSkills = createBossFX(scene);
   const tokens = makeSupplyTokens(scene);
   const course = createCourseArt(scene, bend.curve),
@@ -362,7 +394,7 @@ export function makeView(canvas, stage) {
   const spritesReady = createSpriteArt(scene)
     .then((result) => {
       sprites = result;
-      captain.paint(result.captainTexture, result.gruntTexture);
+      for (const c of captainPool) c.paint(result.captainTexture, result.gruntTexture);
       blue.paint(result.allyTexture, result.gruntTexture);
       red.paint(result.gruntTexture, result.allyTexture);
       bend.markDirty();
@@ -474,7 +506,7 @@ export function makeView(canvas, stage) {
           red.put(e.x, e.lift || 0, e.z, e.size, 0, 0, e.yaw, 0, marchAngle(e), walk);
         }
         const shadowScale = THREE.MathUtils.smoothstep(e.z, -45, -30);
-        if (shadowScale > 0) shade.put(e.x, e.z, 0.64 * shadowScale);
+        if (shadowScale > 0) shade.put(e.x, e.z, 0.66 * e.size * shadowScale);
       }
 
     const kitCounts = { gunner: 0, guard: 0, bomber: 0, standard: 0, vault: 0, courier: 0 };
@@ -490,35 +522,100 @@ export function makeView(canvas, stage) {
       }
       if (mode === '3d')
         red.put(e.x, e.lift || 0, e.z, e.size, 0, 0, e.yaw, 0, marchAngle(e), walk);
-      shade.put(e.x, e.z, 0.67);
+      shade.put(e.x, e.z, 0.68 * e.size);
     }
     for (const [role, mesh] of Object.entries(kits)) flushInstancedMatrix(mesh, kitCounts[role]);
 
-    const tier = s.tier || 1;
-    for (const a of s.allies) {
-      let scale = 1;
-      if (a.age < 0.25)
-        scale =
-          0.55 +
-          0.45 * Math.min(1, a.age / 0.15) +
-          Math.sin(Math.PI * Math.min(1, a.age / 0.25)) * 0.18;
-      const elite =
-        tier >= 4 || (tier === 3 && a.slot % 2 === 0) || (tier === 2 && a.slot % 4 === 0);
-      if (elite) scale *= 1.06;
-      if (mode === '3d')
-        blue.put(
-          a.x,
+    const allyKitCounts = { shield: 0, flame: 0, tesla: 0, assault: 0, pyro: 0, storm: 0 };
+    let capIdx = 0;
+    let titanIdx = 0;
+    const rescueLift = s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0;
+    const dead = s.phase === 'lost';
+    const lean = THREE.MathUtils.clamp(s.velocity / 9, -1, 1);
+
+    for (const u of s.squad) {
+      const def = UNIT_DEFS[u.kind] || UNIT_DEFS.rifle;
+      let pop = 1;
+      if (u.age < 0.28)
+        pop =
+          0.58 +
+          0.42 * Math.min(1, u.age / 0.16) +
+          Math.sin(Math.PI * Math.min(1, u.age / 0.28)) * 0.2;
+      if (u.mergeBirth > 0) pop += u.mergeBirth * 0.24;
+
+      if (def.tier >= 3) {
+        // T3 重炮队长 / T4 钢铁指挥官：仅在真实合成诞生后以完整 3D 重装模型现身
+        const isTitan = u.kind === 'titan';
+        if (is3d) {
+          const rig = acquireCommander(isTitan ? 'titan' : 'captain', isTitan ? titanIdx++ : capIdx++);
+          rig.root.visible = true;
+          const cmdScale = (isTitan ? 1.24 : 0.96) * pop;
+          rig.root.position.set(u.x, rescueLift, u.z);
+          rig.root.rotation.set(0, -s.velocity * 0.018, 0);
+          rig.root.scale.setScalar(cmdScale);
+          rig.animate({
+            time: time + u.phase * 0.12 + (s.parade ? s.endTime * 0.54 : 0),
+            run: s.parade ? 1 : playing ? 0.91 : dead ? 0 : 0.14,
+            recoil: u.recoil || 0,
+            merge: Math.max(
+              u.mergeBirth || 0,
+              (u.hurt || 0) * 0.7,
+              isTitan ? 0.08 : 0,
+              s.overdriveActive > 0 ? 0.35 : 0,
+            ),
+            lean,
+          });
+        }
+        shade.put(u.x, u.z, (isTitan ? 1.52 : 1.18) * pop, 1, 1.26);
+        continue;
+      }
+
+      const scale = def.scale * pop;
+      const bob = walk ? Math.abs(Math.sin(step + u.phase)) * 0.045 : 0;
+      if (mode === '3d') {
+        const glow = Math.max(
           0,
-          a.z,
+          1 - u.age * 2.8,
+          (u.mergeBirth || 0) * 0.9,
+          (u.hurt || 0) * 0.75,
+          def.tier === 2 ? 0.22 : 0,
+        );
+        blue.put(
+          u.x,
+          rescueLift,
+          u.z,
           scale,
-          Math.max(0, 1 - a.age * 2.8, elite ? 0.22 : 0),
+          glow,
           0,
           -s.velocity * 0.014,
           0,
-          step + a.phase,
+          step + u.phase,
           walk,
         );
-      shade.put(a.x, a.z, 0.71 * scale);
+      }
+      // 挂装专属 3D 兵种装备（护盾/火焰罐/电磁塔/双枪/烈焰火箭/磁暴柱），混合与纯3D模式全可见
+      const gearMesh = allyKits[u.kind];
+      if (gearMesh && allyKitCounts[u.kind] < gearMesh.instanceMatrix.count) {
+        pose.position.set(u.x, rescueLift + bob, u.z);
+        pose.rotation.set(0, -s.velocity * 0.014, 0);
+        pose.scale.setScalar(scale);
+        pose.updateMatrix();
+        gearMesh.setMatrixAt(allyKitCounts[u.kind]++, pose.matrix);
+      }
+      shade.put(u.x, u.z, 0.72 * scale);
+    }
+    for (let i = capIdx; i < captainPool.length; i++) captainPool[i].root.visible = false;
+    for (let i = titanIdx; i < titanPool.length; i++) titanPool[i].root.visible = false;
+    for (const [kind, mesh] of Object.entries(allyKits))
+      flushInstancedMatrix(mesh, allyKitCounts[kind]);
+
+    // 合成飞旋汇聚中的 3D 小兵（纯 3D 模式）
+    if (mode === '3d') {
+      for (const m of s.merges || []) {
+        const t = THREE.MathUtils.clamp(m.age / m.duration, 0, 1);
+        const sc = (UNIT_DEFS[m.kind]?.scale || 1) * (1 - 0.55 * t);
+        blue.put(m.x, m.y, m.z, sc, 0.95, 0, t * 8, 0, step * 1.3, 0.4);
+      }
     }
 
     let supportCount = 0;
@@ -533,8 +630,21 @@ export function makeView(canvas, stage) {
     tokens.update(s.deliveries);
     for (const f of s.deliveries) {
       if (f.age < 0 || f.slot == null) continue;
-      if (mode === '3d')
-        blue.put(f.x, f.y, f.z, 0.65 + 0.35 * f.progress, 0.42, 0, 0, 0, step + f.phase, 0.55);
+      if (mode === '3d') {
+        const uScale = UNIT_DEFS[f.unitKind]?.scale || 1;
+        blue.put(
+          f.x,
+          f.y,
+          f.z,
+          (0.65 + 0.35 * f.progress) * uScale,
+          0.42,
+          0,
+          0,
+          0,
+          step + f.phase,
+          0.55,
+        );
+      }
     }
     if (s.buffs.drone > 0 || s.overdriveActive > 0)
       for (const side of [-1, 1])
@@ -570,49 +680,35 @@ export function makeView(canvas, stage) {
       if (e.y < 2) shade.put(e.x, e.z, 0.64 * scale);
     }
 
-    const dead = s.phase === 'lost',
-      mainSize = s.visualScale;
-    const overrunFall = s.overrun ? THREE.MathUtils.smoothstep(s.endTime, 0, 0.5) : 0;
-    const otherFall = dead && !s.overrun;
-    captain.root.visible = is3d && (!otherFall || s.endTime < 0.4);
-    const rescueLift = s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0;
-    captain.root.position.set(
-      s.x,
-      s.overrun
-        ? 0.25 * overrunFall
-        : otherFall
-          ? Math.sin(Math.min(1, s.endTime / 0.4) * Math.PI) * 0.64
-          : rescueLift,
-      s.captainZ,
-    );
-    captain.root.rotation.set(
-      1.45 * overrunFall,
-      dead ? 0 : -s.velocity * 0.018,
-      otherFall ? -s.endTime * 5 : -0.16 * overrunFall,
-    );
-    captain.root.scale.setScalar(mainSize * (otherFall ? Math.max(0.05, 1 - s.endTime * 2) : 1));
-    captain.animate({
-      time: time + (s.parade ? s.endTime * 0.54 : 0),
-      run: s.parade ? 1 : playing ? 0.91 : dead ? 0 : 0.09,
-      recoil: s.recoil,
-      merge: Math.max(s.mergeGlow, s.hurt * 0.62, s.overdriveActive > 0 ? 0.35 : 0),
-      lean: THREE.MathUtils.clamp(s.velocity / 9, -1, 1),
-    });
-
     const b = s.boss;
     boss.root.visible = b.active && !b.removed && b.z < 9;
-    const drop = THREE.MathUtils.smoothstep(defeatTime, 0.25, 0.92);
+    // Boss 两阶段击杀演出：
+    // 0 ~ 0.85s：被密集子弹持续猛烈击退向 -Z 远端、直立后仰抽搐踉跄；
+    // 0.85 ~ 1.38s：彻底失衡向后仰面倒下（rotation.x -> -1.54，头朝远端仰摔绝不前扑！）并带砸地回弹！
+    const knockStagger = b.defeated
+      ? THREE.MathUtils.smoothstep(defeatTime, 0, 0.08) *
+        (1 - THREE.MathUtils.smoothstep(defeatTime, 0.82, 0.94))
+      : 0;
+    const fallT = b.defeated ? THREE.MathUtils.smoothstep(defeatTime, 0.84, 1.38) : 0;
+    const fallCurve = fallT * fallT; // 加速向后重摔
     const bounce =
-      defeatTime > 0.92
-        ? Math.sin((defeatTime - 0.92) * 19) * Math.exp(-9 * (defeatTime - 0.92))
+      b.defeated && defeatTime > 1.38
+        ? Math.sin((defeatTime - 1.38) * 20) * Math.exp(-8.5 * (defeatTime - 1.38))
         : 0;
-    const lift = b.lift * (1 - THREE.MathUtils.smoothstep(defeatTime, 0, 0.3));
+    const lift = b.lift * (1 - THREE.MathUtils.smoothstep(defeatTime, 0, 0.2));
     boss.root.position.set(
-      b.x - 0.26 * drop,
-      lift + 0.27 * drop + Math.max(0, bounce) * 0.16,
-      b.z - 0.62 * drop,
+      b.x + knockStagger * Math.sin(defeatTime * 28) * 0.14 - 0.22 * fallCurve,
+      lift + 0.3 * fallCurve + Math.max(0, bounce) * 0.22,
+      b.z - 0.45 * fallCurve,
     );
-    boss.root.rotation.set(-1.49 * drop + 0.13 * bounce, b.yaw * (1 - drop), -0.3 * drop);
+    const backTilt =
+      -0.2 * knockStagger -
+      0.16 * knockStagger * Math.abs(Math.sin(defeatTime * 24)) -
+      1.54 * fallCurve +
+      0.15 * bounce;
+    const staggerRoll = knockStagger * Math.sin(defeatTime * 19) * 0.11 - 0.24 * fallCurve;
+    boss.root.rotation.set(backTilt, b.yaw * (1 - fallCurve), staggerRoll);
+
     drawBossSkills(b);
     const cast = b.skill;
     const charge = cast
@@ -630,6 +726,7 @@ export function makeView(canvas, stage) {
       walk: playing && b.active && !b.defeated ? 1 : 0,
       march: b.marched,
       attack: b.attackT,
+      slamHand: b.slamHand || 0,
       hit: Math.max(b.hit, b.enraged ? 0.16 + 0.1 * Math.sin(time * 9) : 0),
       defeat: defeatTime,
       kind: b.kind,
@@ -637,22 +734,30 @@ export function makeView(canvas, stage) {
       brace: b.brace,
       drive: b.special,
     });
+
+    // Boss 高举连续砸地地面拳印预警圈（第 3 记双拳终极砸扩大且变烈红）
     warning.visible = countdown.visible =
-      playing && !b.defeated && b.attackT > 0 && b.attackT < touchdown;
+      playing && !b.defeated && b.attackT > 0 && b.attackT < slamStrike;
     if (warning.visible) {
+      const heavyFinisher = b.slamHand === 2;
+      const radMult = heavyFinisher ? 1.18 : 1;
+      warning.material.color.setHex(heavyFinisher ? 0xff2f26 : 0xff7b29);
       warning.position.set(b.landX, 0.047, b.landZ);
+      warning.scale.setScalar(radMult);
       countdown.position.set(b.landX, 0.051, b.landZ);
-      countdown.scale.setScalar(0.3 + 0.7 * THREE.MathUtils.smoothstep(b.attackT, 0, touchdown));
+      countdown.scale.setScalar(
+        radMult * (0.28 + 0.72 * THREE.MathUtils.smoothstep(b.attackT, 0, slamStrike)),
+      );
     }
-    if (!dead || s.overrun) shade.put(s.x, s.captainZ + overrunFall * 0.4, 1.3 * mainSize, 1, 1.32);
-    if (boss.root.visible) shade.put(b.x, b.z - drop, 3.65 - lift * 0.38, 1.12 + drop * 0.65, 1.15);
+    if (boss.root.visible)
+      shade.put(b.x, b.z - fallCurve * 1.1, 3.65 - lift * 0.38, 1.12 + fallCurve * 0.75, 1.15);
 
     aura.update(s, time);
     shade.end();
     blue.end();
     red.end();
     if (sprites) sprites.draw(s, camera, time, mode);
-    effects.update(dt, advance, s.shots, s.incoming);
+    effects.update(dt, advance, s.shots, s.incoming, s.lightningArcs, s.merges);
     bend.prepareScene();
     renderer.render(scene, camera);
   }
@@ -676,10 +781,19 @@ export function makeView(canvas, stage) {
     },
     feedback(e) {
       effects.burst(e.kind, e.x, e.y, e.z, e.strength, e.supply);
-      if (e.kind === 'slam' || e.kind === 'wallBreak' || e.kind === 'bossBurst') {
-        shake = 0.92;
+      if (
+        e.kind === 'slam' ||
+        e.kind === 'wallBreak' ||
+        e.kind === 'bossBurst' ||
+        e.kind === 'barrelBlast'
+      ) {
+        shake = e.kind === 'barrelBlast' ? 0.86 : 0.92;
         fovPunch = 0.75;
-        atmosphere.flashLight(e.x, e.y + 0.4, e.z, 0xff8a2b, 14, 0.36);
+        atmosphere.flashLight(e.x, e.y + 0.4, e.z, 0xff7a22, 16, 0.38);
+      } else if (e.kind === 'lavaBurst') {
+        shake = Math.max(shake, 0.56);
+        fovPunch = Math.max(fovPunch, 0.4);
+        atmosphere.flashLight(e.x, 1.2, e.z, 0xff5218, 14, 0.34);
       } else if (e.kind === 'overdrive' || e.kind === 'evolve') {
         shake = Math.max(shake, 0.68);
         fovPunch = Math.max(fovPunch, 0.9);

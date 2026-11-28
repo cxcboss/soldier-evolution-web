@@ -10,12 +10,16 @@ export function closestSquadMember(battle) {
   let x = battle.x,
     z = battle.captainZ;
   let distance = Math.hypot(x - boss.x, z - boss.z);
-  for (const ally of battle.allies) {
-    const d = Math.hypot(ally.x - boss.x, ally.z - boss.z);
-    if (d < distance) {
-      distance = d;
-      x = ally.x;
-      z = ally.z;
+  const list = battle.squad || battle.allies || [];
+  if (list.length) {
+    distance = Infinity;
+    for (const ally of list) {
+      const d = Math.hypot(ally.x - boss.x, ally.z - boss.z);
+      if (d < distance) {
+        distance = d;
+        x = ally.x;
+        z = ally.z;
+      }
     }
   }
   return { x, z, distance };

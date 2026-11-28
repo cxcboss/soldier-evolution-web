@@ -3,7 +3,7 @@ import { makeCard } from './supplies.js';
 import { escortPassage } from './boss-pursuit.js';
 
 const clamp = (v, low, high) => Math.max(low, Math.min(high, v));
-const shootable = new Set(['cache', 'bridge', 'coil', 'cover']);
+const shootable = new Set(['cache', 'bridge', 'coil', 'cover', 'barrel', 'roller']);
 
 function revealCard(b, p, type) {
   const card = makeCard(p.x, b.distance - p.z + 0.85, type, b.stage);
@@ -12,12 +12,45 @@ function revealCard(b, p, type) {
   b.event('supplyBreak', p.x, 0.65, card.z);
 }
 
+/** 引爆高爆油桶，并延迟连锁引爆附近其他油桶 */
+function detonateBarrel(b, p, shot) {
+  p.state = 'exploded';
+  p.hp = 0;
+  p.age = 0;
+  b.event('barrelBlast', p.x, 0.5, p.z, 1.45);
+  b.addPopup?.(p.x, 1.35, p.z, '连环爆破!', 'crit');
+  const radius = p.radius || 3.85;
+  const burn = (e) => {
+    if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < radius) b.kill(e, 1.55, p.x);
+  };
+  for (const col of b.columns) for (const e of col.units) burn(e);
+  for (const e of b.runners) burn(e);
+  if (
+    b.boss.active &&
+    !b.boss.defeated &&
+    Math.hypot(b.boss.x - p.x, b.boss.z - p.z) < radius + 1.4
+  ) {
+    b.damageBoss(shot || { kind: 'rocket' }, 180);
+  }
+  // 触发附近 5.8 单位内的邻近油桶进入 0.14s 连锁引爆倒计时
+  for (const other of b.features) {
+    if (
+      other !== p &&
+      other.kind === 'barrel' &&
+      other.state === 'ready' &&
+      Math.hypot(other.x - p.x, other.z - p.z) < 5.8
+    ) {
+      other.chainTimer = 0.14;
+    }
+  }
+}
+
 export function hitMechanism(b, p, shot) {
   if (p.state !== 'ready') return;
   const latch = p.variant === 'shutter' && Math.abs(shot.x - p.x) < 0.51;
   let damage = shot.damage;
   if (latch) damage *= 2.25;
-  if (p.variant === 'crates' && shot.kind === 'rocket') damage *= 1.4;
+  if ((p.variant === 'crates' || p.kind === 'roller') && shot.kind === 'rocket') damage *= 1.45;
   p.hp = Math.max(0, p.hp - damage);
   p.flash = 1;
   if (p.hp > 0) {
@@ -25,9 +58,23 @@ export function hitMechanism(b, p, shot) {
     b.event(latch ? 'latchHit' : 'wallHit', shot.x, 0.65, shot.z, 0.55);
     return;
   }
-  if (b.addOverdrive) b.addOverdrive(8);
-  if (b.addCombo) b.addCombo(2);
+  b.addOverdrive?.(8);
+  b.addCombo?.(2);
   p.age = 0;
+
+  if (p.kind === 'barrel') {
+    detonateBarrel(b, p, shot);
+    return;
+  }
+
+  if (p.kind === 'roller') {
+    p.state = 'broken';
+    b.event('crateBreak', p.x, 0.65, p.z, 1.35);
+    b.addPopup?.(p.x, 1.35, p.z, '击碎滚木 · 援兵+3!', 'buff');
+    for (let i = 0; i < 3; i++) b.recruit(p.x + (i - 1) * 0.4, false, 'rifle');
+    return;
+  }
+
   if (p.kind === 'cover') {
     p.state = 'open';
     if (p.variant === 'glass') {
@@ -45,29 +92,38 @@ export function hitMechanism(b, p, shot) {
   } else if (p.kind === 'bridge') {
     p.state = 'cut';
     b.event('chainSnap', p.x, 0.85, p.z);
-    b.notice(laneName(p.lane) + '吊桥已落，增援被截断');
+    b.notice(laneName(p.lane) + '吊桥已断，截断增援');
   } else if (p.kind === 'coil') {
     p.state = 'discharged';
-    b.event('discharge', p.x, 0.5, p.z, 1.35);
+    b.event('discharge', p.x, 0.5, p.z, 1.45);
+    b.addPopup?.(p.x, 1.5, p.z, '电磁连锁放电!', 'buff');
+    let arcs = 0;
     const zap = (e) => {
-      if (e.alive && Math.abs(e.z - p.z) < 7 && Math.abs(e.x - p.x) < 5.1) b.kill(e, 0.9, p.x);
+      if (e.alive && Math.abs(e.z - p.z) < 7.5 && Math.abs(e.x - p.x) < 5.5) {
+        if (arcs < 12) {
+          b.addLightning?.(p.x, 1.32, p.z, e.x, 0.55, e.z);
+          arcs++;
+        }
+        b.kill(e, 1.0, p.x);
+      }
     };
     for (const c of b.columns) for (const e of c.units) zap(e);
     for (const e of b.runners) zap(e);
     if (
       b.boss.active &&
       !b.boss.defeated &&
-      Math.abs(b.boss.z - p.z) < 6 &&
-      Math.abs(b.boss.x - p.x) < 5
-    )
-      b.damageBoss(shot, 24);
+      Math.abs(b.boss.z - p.z) < 6.5 &&
+      Math.abs(b.boss.x - p.x) < 5.5
+    ) {
+      b.addLightning?.(p.x, 1.32, p.z, b.boss.x, 1.6, b.boss.z);
+      b.damageBoss(shot, 120);
+    }
   }
 }
 
 export function finaleGap(b) {
   const boss = b.boss,
     relativeSpeed = b.bossEntryStride;
-  // Place the far lip from the real camera entry, so the take-off is visible on every aspect ratio.
   const lead = Math.max(4, ((-23 - boss.z) * relativeSpeed) / (2.3 + relativeSpeed));
   let middle = boss.z + lead + 3;
   let passage = escortPassage(b, boss.z - 1.1, middle + 3.8);
@@ -90,15 +146,15 @@ export function finaleGap(b) {
   b.features.push(p);
 }
 
-// The warning follows one marked spot on the deck. Its radius is the exact hit area.
+/** 第 3 关：高空炙热陨石火雨落点逻辑 */
 function advanceSkyfall(b, p) {
   const landingZ = 0.66;
-  const warningTravel = 7.8;
+  const warningTravel = 8.4;
   const remaining = landingZ - p.z;
   if (p.state === 'ready' && b.phase !== 'clear' && remaining <= warningTravel) {
     p.state = 'warning';
     p.age = 0;
-    b.notice(laneName(p.lane) + '吊货坠落，避开地标');
+    b.notice(laneName(p.lane) + '炽热陨石坠落，闪避红圈！');
   }
   if (p.state !== 'warning') return;
   p.progress = clamp(1 - remaining / warningTravel, 0, 1);
@@ -106,62 +162,125 @@ function advanceSkyfall(b, p) {
   if (remaining > 0) return;
   p.state = 'landed';
   p.age = 0;
-  b.event('impact', p.x, 0.18, p.z, 1.35);
+  b.event('barrelBlast', p.x, 0.2, p.z, 1.35);
   const inside = (x, z) => Math.hypot(x - p.x, z - p.z) <= p.radius;
-  function hitRed(e) {
-    if (e.alive && inside(e.x, e.z)) b.kill(e, 1.08, p.x);
+  for (const col of b.columns) for (const e of col.units) if (e.alive && inside(e.x, e.z)) b.kill(e, 1.3, p.x);
+  for (const e of b.runners) if (e.alive && inside(e.x, e.z)) b.kill(e, 1.3, p.x);
+  b.damageSquadArea?.(p.x, p.z, p.radius, 3, 'skyfall');
+}
+
+/** 第 3 关：熔岩间歇喷发裂隙 */
+function advanceLavaVent(b, p, dt) {
+  if (p.z < -28 || p.z > 8) return;
+  p.ventClock = (p.ventClock ?? (p.lane + 1) * 0.7) + dt;
+  const cycle = p.ventClock % 2.4;
+  const prevErupt = p.erupting;
+  p.warming = cycle >= 0.75 && cycle < 1.6;
+  p.erupting = cycle >= 1.6 && cycle < 2.25;
+  p.ventProgress = p.warming ? (cycle - 0.75) / 0.85 : p.erupting ? 1 : 0;
+  if (p.erupting && !prevErupt) {
+    b.event('lavaBurst', p.x, 0.25, p.z, 1.25);
+    // 瞬间灼烧路过红兵
+    const r = p.radius || 2.05;
+    for (const col of b.columns)
+      for (const e of col.units)
+        if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < r) b.kill(e, 1.15, p.x);
+    for (const e of b.runners)
+      if (e.alive && Math.hypot(e.x - p.x, e.z - p.z) < r) b.kill(e, 1.15, p.x);
+    // 若我方在熔岩喷口上则伤及外围小兵
+    b.damageSquadArea?.(p.x, p.z, r * 0.92, 2, 'lava');
   }
-  for (const col of b.columns) for (const e of col.units) hitRed(e);
-  for (const e of b.runners) hitRed(e);
-  b.allies = b.allies.filter((a) => {
-    if (!inside(a.x, a.z)) return true;
-    b.fall(a, 'blue', 1.15, p.x);
-    return false;
-  });
-  if (!inside(b.x, b.captainZ)) return;
-  if (b.buffs.shield > 0) {
-    b.event('shieldHit', b.x, 0.55, b.captainZ);
-    return;
+}
+
+/** 第 2 关：林谷巨型滚木奇袭 */
+function advanceRoller(b, p, dt) {
+  if (p.state !== 'ready') return;
+  if (p.z > -32) {
+    p.rollOffset = (p.rollOffset || 0) + (p.speed || 6.2) * dt;
+    p.z = b.distance - p.at + p.rollOffset;
+    p.rollSpin = (p.rollSpin || 0) + dt * 6.5;
   }
-  if (b.hitGuard > 0) return;
-  b.hurt = 1;
-  b.hitGuard = 1.2;
-  if (--b.armor <= 0) {
-    b.lossReason = 'skyfall';
-    b.finish(false);
+  if (!p.warned && p.z > -26 && p.z < -12) {
+    p.warned = true;
+    b.notice(laneName(p.lane) + '巨木滚来！闪避或集火轰碎');
+  }
+  if (p.target) {
+    p.target.x = p.x;
+    p.target.z = p.z;
+  }
+  // 滚木也会碾倒同车道红兵
+  for (const col of b.columns) {
+    for (const e of col.units) {
+      if (e.alive && Math.abs(e.x - p.x) < 1.8 && Math.abs(e.z - p.z) < 0.72) b.kill(e, 1.1, p.x);
+    }
+  }
+  // 碾过我方阵列时击飞同车道外围小兵
+  if (!p.hitSquad && Math.abs(p.z - b.captainZ) < 1.15) {
+    const hits = b.damageSquadArea?.(p.x, p.z, 1.9, 3, 'roller');
+    if (hits > 0) p.hitSquad = true;
   }
 }
 
 export function updateTerrain(b, dt) {
   b.activeGround.length = 0;
   for (const p of b.features) {
-    p.z = b.distance - p.at;
+    if (p.kind !== 'roller' || p.state !== 'ready' || p.z <= -32) {
+      p.z = b.distance - p.at + (p.rollOffset || 0);
+    }
     p.age += dt;
     p.flash = Math.max(0, p.flash - dt * 6);
+
+    // 连锁油桶延迟引爆
+    if (p.kind === 'barrel' && p.state === 'ready' && p.chainTimer > 0) {
+      p.chainTimer -= dt;
+      if (p.chainTimer <= 0) {
+        detonateBarrel(b, p, null);
+        continue;
+      }
+    }
+
     if (p.z < b.entryZ - 12 || p.z > 15) continue;
+
     if (p.kind === 'skyfall') {
       advanceSkyfall(b, p);
       if (!b.playing) return;
       continue;
     }
+    if (p.kind === 'lavaVent') {
+      advanceLavaVent(b, p, dt);
+      if (!b.playing) return;
+      continue;
+    }
+    if (p.kind === 'roller') {
+      if (shootable.has(p.kind)) {
+        p.target ??= { mechanism: p };
+        p.target.x = p.x;
+        p.target.z = p.z;
+      }
+      advanceRoller(b, p, dt);
+      if (!b.playing) return;
+      continue;
+    }
+
     if (p.kind === 'bridge' || p.kind === 'gap' || p.kind === 'belt') b.activeGround.push(p);
-    if (!p.warned && p.z > -22 && p.z < -14 && p.state === 'ready' && !p.finale) {
+    if (!p.warned && p.z > -22 && p.z < -13 && p.state === 'ready' && !p.finale) {
       p.warned = true;
       const side = laneName(p.lane);
       const prompts = {
         gap: side + '断桥，提前换道',
-        bridge: '打断' + side + '吊索，截住增援',
-        cache: '打碎' + side + '砖墙，取出补给',
+        bridge: '打断' + side + '吊索，截断增援',
+        cache: '打碎' + side + '砖墙，获取合成补给',
+        barrel: '引爆' + side + '汽油桶，连锁清屏！',
         cover:
           p.variant === 'glass'
-            ? side + '玻璃瓶，击碎可震倒近兵'
+            ? side + '玻璃瓶，击碎震倒红兵'
             : p.variant === 'crates'
               ? side + '木箱，重炮拆得快'
               : side + '钢闸，瞄准橙色锁扣',
-        coil: '击中' + side + '线圈，放电清兵',
+        coil: '击中' + side + '电磁塔，触发闪电链！',
         belt: side + '传送带向' + (p.direction > 0 ? '右' : '左'),
       };
-      b.notice(prompts[p.kind]);
+      if (prompts[p.kind]) b.notice(prompts[p.kind]);
     }
     if (shootable.has(p.kind)) {
       p.target ??= { mechanism: p };
@@ -188,10 +307,10 @@ export function updateTerrain(b, dt) {
       p.age = 0;
       b.flanks.push({
         x: p.lane === 0 ? 4.44 : p.x,
-        remaining: b.route.siege ? 27 : 16 + Math.floor(b.stage / 3),
+        remaining: 16,
         next: 0,
       });
-      b.notice(laneName(p.lane) + '吊桥接通，增援来了');
+      b.notice(laneName(p.lane) + '吊桥接通，敌军增援来袭');
     }
     if (
       p.kind === 'belt' &&
@@ -199,7 +318,7 @@ export function updateTerrain(b, dt) {
       Math.abs(b.x - p.x) < laneWidth / 2 - 0.1 &&
       !b.rope
     )
-      b.aim(b.targetX + p.direction * dt * 1.32);
+      b.aim(b.targetX + p.direction * dt * 1.45);
     if (
       isOpening(p) &&
       b.planks &&
@@ -215,26 +334,23 @@ export function updateTerrain(b, dt) {
       b.notice(laneName(p.lane) + '已搭好便桥');
     }
     if (isOpening(p) && Math.abs(p.z) < p.length / 2 + 2.8) {
-      b.allies = b.allies.filter((a) => {
-        if (!overOpening(p, a.x, a.z, 0.14)) return true;
-        const body = b.fall(a, 'blue', 0);
-        body.intoGap = true;
-        body.vy = -0.5;
-        return false;
-      });
-      if (!b.rope && overOpening(p, b.x, b.captainZ, 0.22)) {
-        b.armor--;
-        b.hurt = 1;
-        if (b.armor <= 0) {
-          b.lossReason = 'gap';
-          b.finish(false);
-          return;
+      for (let i = b.squad.length - 1; i >= 0; i--) {
+        const a = b.squad[i];
+        if (!overOpening(p, a.x, a.z, 0.16)) continue;
+        // 断桥仅跌落踏空的外围小兵；若是高阶大兵则安全绳拉回保护
+        if (b.squad.length > 1) {
+          b.squad.splice(i, 1);
+          const body = b.fall(a, 'blue', 0);
+          body.intoGap = true;
+          body.vy = -0.6;
         }
+      }
+      if (!b.rope && overOpening(p, b.x, b.captainZ, 0.25)) {
         const side = p.lane === -1 ? 1 : p.lane === 1 ? -1 : b.x >= p.x ? 1 : -1;
         b.rope = { age: 0, from: b.x, to: p.x + side * (laneWidth / 2 + 0.75) };
         b.aim(b.rope.to);
-        b.hitGuard = 1.05;
-        b.notice('安全绳拉回队长，护甲 −1');
+        b.damageSquadArea?.(p.x, p.z, 2.2, 2, 'gap');
+        b.notice('触发安全绳拉回，小心断桥！');
       }
     }
   }
@@ -246,18 +362,12 @@ export function updateTerrain(b, dt) {
       const e = b.grunt(flank.x + ((flank.remaining % 3) - 1) * 0.12, b.entryZ - 0.92);
       e.speed = 3.18;
       e.flank = true;
-      if (b.route.siege && flank.remaining % 5 === 0) {
-        e.role = 'guard';
-        e.size *= 1.32;
-        e.hp = 9;
-      }
       b.runners.push(e);
     }
   }
   b.flanks = b.flanks.filter((f) => f.remaining > 0);
 }
 
-// Ordinary ranks follow the edge of a missing span. Pole troops plant their pole and vault.
 export function steerTerrain(b, e, dt) {
   e.lift = 0;
   for (const p of b.activeGround) {
@@ -295,9 +405,11 @@ export function startVault(b, p) {
   const boss = b.boss;
   boss.vault = { piece: p, t: 0, from: boss.z - p.z, to: p.length / 2 + 1.08 };
   boss.attackT = 0;
+  boss.slamChain = 0;
   boss.recovery = 0.15;
   p.crossed = true;
 }
+
 export function vaultPose(b, dt) {
   const boss = b.boss,
     v = boss.vault;

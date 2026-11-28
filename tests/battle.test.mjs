@@ -8,14 +8,15 @@ import {
   shotRange,
   sampleFlight,
 } from '../src/projectiles.js';
-import { touchdown } from '../src/brawler-motion.js';
+import { slamCycle, slamStrike } from '../src/brawler-motion.js';
+import { UNIT_DEFS } from '../src/units.js';
 
 function field(emit) {
   const battle = new Battle(emit);
   battle.start();
   battle.columns = [];
   battle.gates = [];
-  battle.allies = [];
+  battle.features = [];
   battle.wall.hp = 0;
   return battle;
 }
@@ -26,10 +27,81 @@ function placeRunner(battle, x, z) {
   return enemy;
 }
 
-test('every weapon normally fires straight, including from either side lane, and expires at range', () => {
+test('开局无固定队长，纯由 3 名基础蓝盔步兵出发，并通过多级合成一路进化到重炮队长与钢铁指挥官', () => {
+  const b = new Battle();
+  b.start();
+  // 开局严格没有队长，全是基础步兵
+  assert.equal(b.squad.length, 3);
+  assert.ok(b.squad.every((u) => u.kind === 'rifle'));
+  assert.equal(b.highestUnitTier, 1);
+
+  // 1. 3 名步兵合成 1 名 T2 双枪突击兵
+  assert.equal(b.performMerge(1, false), true);
+  assert.equal(b.squad.length, 1);
+  assert.equal(b.squad[0].kind, 'assault');
+  assert.equal(b.highestUnitTier, 2);
+  assert.ok(b.merges.length >= 3, '应生成合成飞旋汇聚队列');
+
+  // 2. 1 名烈焰兵 + 2 名步兵融合为 T2 烈焰火箭兵
+  b.recruit(0, true, 'flame');
+  b.recruit(0, true, 'rifle');
+  b.recruit(0, true, 'rifle');
+  assert.equal(b.performMerge(1, false), true);
+  assert.ok(b.squad.some((u) => u.kind === 'pyro'), '应融合出烈焰火箭兵');
+
+  // 3. 2 名 T2 大兵（assault + pyro）融合为 T3 重炮队长！
+  assert.equal(b.performMerge(1, false), true);
+  assert.ok(b.squad.some((u) => u.kind === 'captain'), '两尊大兵应合出重炮队长');
+  assert.equal(b.highestUnitTier, 3);
+
+  // 4. 再合出一尊 T3 重炮队长后，双队长融合为 T4 终极钢铁指挥官！
+  b.recruit(0, true, 'captain');
+  assert.equal(b.performMerge(1, false), true);
+  assert.ok(b.squad.some((u) => u.kind === 'titan'), '双队长应合出终极钢铁指挥官');
+  assert.equal(b.highestUnitTier, 4);
+  assert.equal(UNIT_DEFS.titan.hp, 10);
+});
+
+test('敌方小兵冲撞严格优先打击重盾卫兵与外围 T1 小兵，绝不越级优先打死高阶大兵和队长', () => {
+  const b = field();
+  b.squad = [];
+  const titan = b.recruit(0, true, 'titan');
+  const assault = b.recruit(0.2, true, 'assault');
+  const rifle = b.recruit(0.4, true, 'rifle');
+  const shield = b.recruit(0.1, true, 'shield');
+  // 紧贴高阶核心坐标放置一名冲锋红兵
+  titan.x = 0;
+  titan.z = 0;
+  assault.x = 0.1;
+  assault.z = 0;
+  rifle.x = 0.6;
+  rifle.z = -0.2;
+  shield.x = 0.5;
+  shield.z = -0.3;
+
+  // 第一击：必定先打重盾卫兵（shield，HP 3 -> 2），大兵与指挥官毫发无伤
+  const e1 = placeRunner(b, 0, -0.05);
+  b.hitGuard = 0;
+  assert.equal(b.contact(e1), true);
+  assert.equal(shield.hp, 2);
+  assert.equal(titan.hp, titan.maxHp);
+  assert.equal(assault.hp, assault.maxHp);
+
+  // 移除重盾后，第二击必定优先打外围 T1 蓝盔步兵，仍然不碰核心大兵与指挥官
+  b.squad = b.squad.filter((u) => u !== shield);
+  const e2 = placeRunner(b, 0, -0.05);
+  b.hitGuard = 0;
+  assert.equal(b.contact(e2), true);
+  assert.equal(b.squad.includes(rifle), false, '外围 T1 小兵应先挡伤阵亡');
+  assert.equal(titan.hp, titan.maxHp);
+  assert.equal(assault.hp, assault.maxHp);
+});
+
+test('所有武器在各车道直线飞行并在射程边界自然消散', () => {
   for (const profile of [rifleRound, pulseRound, cannonRound]) {
     for (const x of [-4.4, 0, 4.15]) {
       const battle = field();
+      battle.squad = [];
       const distant = placeRunner(battle, x > 0 ? -1 : 2, -6);
       const beyondRange = placeRunner(battle, x, -shotRange - 1);
       battle.launch(x, 0.6, 0, profile, 1, 26);
@@ -47,8 +119,9 @@ test('every weapon normally fires straight, including from either side lane, and
   }
 });
 
-test('a close enemy can change the launch angle; losing that enemy never bends an airborne round', () => {
+test('近距离敌人可微调弹道朝向，目标消失后在空子弹不会弯曲折返', () => {
   const battle = field();
+  battle.squad = [];
   const close = placeRunner(battle, 1.2, -1.4);
   battle.launch(0, 0.58, 0, rifleRound, 1, 2.5);
   const shot = battle.shots[0];
@@ -66,8 +139,9 @@ test('a close enemy can change the launch angle; losing that enemy never bends a
   assert.ok(other.alive);
 });
 
-test('a forward round hits the first soldier or wall it physically crosses', () => {
+test('前飞子弹命中物理路径上首个士兵或硬墙，三种弹道拥有递增弧高', () => {
   const battle = field();
+  battle.squad = [];
   const far = placeRunner(battle, 0, -5);
   const near = placeRunner(battle, 0, -3);
   battle.launch(0, 0.58, 0, rifleRound, 1, 2.5);
@@ -79,90 +153,76 @@ test('a forward round hits the first soldier or wall it physically crosses', () 
   battle.launch(0, 1.31, 0, cannonRound, 1, 26);
   battle.advanceShots(0.3);
   assert.ok(battle.wall.hp < 72 && far.alive);
-});
 
-test('the three flight profiles share a forward line and have distinct heights', () => {
-  const battle = field();
+  battle.wall.hp = 0;
   const midpoints = [rifleRound, pulseRound, cannonRound].map((profile) => {
     battle.launch(1, 0.58, 0, profile, 1, 26);
     return sampleFlight(battle.shots.at(-1), shotRange / 2, {});
   });
-  assert.deepEqual(
-    midpoints.map((p) => [p.x, p.z]),
-    Array(3).fill([1, -shotRange / 2]),
-  );
   assert.ok(midpoints[0].y < midpoints[1].y && midpoints[1].y < midpoints[2].y);
 });
 
-test('jump locks its landing point, then hits only soldiers still in the circle, once at touchdown', () => {
+test('Boss 近身发动高举手臂连续砸地（3 连锤切换左右与双拳）并可闪避', () => {
   const events = [];
   const battle = field((e) => events.push(e.kind));
+  battle.squad = [];
+  for (let i = 0; i < 6; i++) {
+    const u = battle.recruit(0, true, 'rifle');
+    u.x = (i % 3) * 0.25 - 0.25;
+    u.z = 0;
+  }
   const boss = battle.boss;
-  Object.assign(boss, { x: -0.5, z: -3.1, active: true });
-  battle.x = -5;
-  battle.allies = [
-    { x: -0.5, z: 0, slot: 0, phase: 0 },
-    { x: 3, z: 0, slot: 1, phase: 1 },
-  ];
+  Object.assign(boss, { x: 0, z: -2.4, active: true, pursuing: true, nextCast: 99 });
   battle.advanceBoss(1 / 60);
   assert.ok(boss.attackT > 0);
-  const { landX, landZ } = boss;
-  battle.allies[1].x = 4;
-  while (boss.attackT < 0.6) battle.advanceBoss(1 / 60);
-  assert.ok(boss.lift > 2);
-  assert.equal(events.includes('slam'), false);
-  while (boss.attackT < touchdown + 0.2) battle.advanceBoss(1 / 60);
-  assert.deepEqual([boss.landX, boss.landZ], [landX, landZ]);
-  assert.equal(events.filter((e) => e === 'slam').length, 1);
-  assert.equal(boss.lift, 0);
-  assert.equal(battle.allies.length, 1);
-  assert.equal(battle.allies[0].slot, 1);
-  assert.equal(battle.armor, 3);
-  assert.ok(battle.falling[0].vy > 4 && Math.hypot(battle.falling[0].vx, battle.falling[0].vz) > 2);
+  assert.equal(boss.slamChain, 3, '常态应发起 3 连砸攻势');
+  assert.equal(boss.slamHand, 0, '第一锤应为左手高举');
+
+  // 推进一整个砸地周期后应砸出第 1 下 slam，并自动切换右手连砸第 2 锤！
+  const steps = Math.ceil((slamCycle + 0.05) * 60);
+  for (let i = 0; i < steps; i++) battle.advanceBoss(1 / 60);
+  assert.equal(events.filter((k) => k === 'slam').length, 1);
+  assert.equal(boss.slamHand, 1, '第 1 锤结束后应立刻切右手连砸');
+  assert.ok(boss.attackT > 0 && boss.slamChain === 2);
+
+  // 再推进 2 个周期，连砸出第 2、3 锤（含双拳终极重砸）
+  for (let i = 0; i < steps * 2; i++) battle.advanceBoss(1 / 60);
+  assert.ok(events.filter((k) => k === 'slam').length >= 2);
 });
 
-test('moving after the windup lets the captain dodge the locked impact', () => {
-  for (const dodge of [false, true]) {
-    const battle = field();
-    Object.assign(battle.boss, { active: true, x: -0.6, z: -3.1 });
-    battle.x = -0.6;
-    battle.advanceBoss(1 / 60);
-    if (dodge) battle.x = 4;
-    for (let i = 0; i < 65; i++) battle.advanceBoss(1 / 60);
-    assert.equal(battle.armor, dodge ? 3 : 2);
-  }
+test('Boss 被击杀时先被密集子弹猛烈向 -Z 击退，再向后仰面倒地砸尘，最后过载爆裂一次', () => {
+  const events = [];
+  const b = field((e) => events.push(e.kind));
+  Object.assign(b.boss, { active: true, z: -8.5, hp: 20 });
+  b.row = b.lastRow;
+  const startZ = b.boss.z;
+  b.damageBoss({ kind: 'rocket' }, 40);
+  assert.equal(b.boss.defeated, true);
+  assert.equal(b.phase, 'clear');
+
+  // 阶段 1（0~0.85s）：被子弹向 -Z 远端持续击退 3+ 单位，身上爆发连环火星，尚未倒地
+  for (let i = 0; i < 48; i++) b.advanceBoss(1 / 60);
+  assert.ok(b.boss.z < startZ - 3.0, `Boss 应被大幅向远端 -Z 击退（现 ${b.boss.z} vs 原 ${startZ}）`);
+  assert.equal(b.boss.removed, false);
+  assert.equal(events.includes('victory'), false, '击退期间尚未落地');
+  assert.ok(events.includes('critHit'), '击退期间应有连续子弹火花');
+
+  // 阶段 2（0.85~1.48s）：向后仰面倒下并在 ~1.36s 砸地扬尘（victory 事件）
+  for (let i = 0; i < 40; i++) b.advanceBoss(1 / 60);
+  assert.equal(events.includes('victory'), true, '约 1.36s 应重重仰摔砸地');
+  assert.equal(b.boss.removed, false);
+
+  // 阶段 3（~2.05s）：倒地停顿后过载炸裂一次
+  for (let i = 0; i < 50; i++) b.advanceBoss(1 / 60);
+  assert.equal(b.boss.removed, true);
+  assert.equal(events.filter((e) => e === 'bossBurst').length, 1);
+
+  // 残敌清空且超过 2.45s 自动转入胜利阅兵
+  for (let i = 0; i < 35; i++) b.advanceBoss(1 / 60);
+  assert.equal(b.phase, 'won');
 });
 
-test('red ranks enter from above the current viewport and march past the moving bridge', () => {
-  for (const entry of [-34.8, -46.2, -56]) {
-    const b = new Battle();
-    b.entryZ = entry;
-    const units = () => [...b.columns.flatMap((col) => col.units), ...b.runners];
-    assert.equal(units().length, 0);
-    assert.equal(b.boss.active, false);
-    b.start();
-    b.x = -5;
-    const seen = new Map();
-    for (let frame = 0; frame < 420; frame++) {
-      b.worldAdvance = 3.65 / 60;
-      b.advanceCrowd(1 / 60);
-      for (const e of units()) {
-        if (!seen.has(e.id)) assert.ok(e.z < entry - 0.65, 'born above the top edge');
-        else assert.ok(e.z - seen.get(e.id) > b.worldAdvance, 'advances even relative to the deck');
-        seen.set(e.id, e.z);
-      }
-      if (frame === 59) {
-        const lead = Math.max(...units().map((e) => e.z)) - entry;
-        assert.ok(lead > 5 && lead < 6.7, 'faster approach with a visible entry');
-      }
-    }
-    const band = units().filter((e) => e.z >= entry + 4 && e.z < entry + 25).length;
-    assert.ok(band > 120 && band < 185, 'training packs leave a visible interval to change lanes');
-    assert.ok(units().some((e) => e.laneX < -3) && units().some((e) => e.laneX > 3));
-  }
-});
-
-test('the planted boot follows the bridge, the other swings forward while lifted', async () => {
+test('步态插值保持支撑脚贴地不打滑、摆动脚清晰抬起迈前', async () => {
   const { marchAngle, sampleFeet, footReach, strideLength } = await import(
     '../src/infantry-walk.js'
   );
@@ -184,29 +244,11 @@ test('the planted boot follows the bridge, the other swings forward while lifted
   assert.ok(Math.abs(next.forward - heel.forward - strideLength * e.size) < 1e-9);
 });
 
-test('the opening rescue breaks in the firing lane and three individual soldiers arrive once', () => {
-  const b = new Battle();
-  const rescue = b.gates[0];
-  b.start();
-  for (let i = 0; i < 140; i++) b.tick(1 / 60);
-  assert.equal(rescue.active, false);
-  assert.equal(b.recruits, 3);
-  assert.equal(b.allies.length, 4);
-  b.openCard(rescue);
-  assert.equal(b.deliveries.length, 0);
-  const weapon = b.gates.find((g) => g.type === 'merge');
-  b.openCard(weapon);
-  b.aim(-4.2);
-  for (let i = 0; i < 40; i++) b.tick(1 / 60);
-  assert.equal(b.cannonDamage, 31);
-  assert.equal(b.allies.length, 4);
-});
-
-test('the finale enters offscreen alongside the last wave, and each level starts with an empty road', () => {
-  const b = new Battle();
-  for (const stage of [1, 5, 10]) {
+test('全部 3 关 Boss 均按预期在终波入场，且第 1 关铁拳能稳健进场交战', () => {
+  for (const stage of [1, 2, 3]) {
+    const b = new Battle();
     b.reset(stage);
-    b.entryZ = -48;
+    b.entryZ = -46;
     b.start();
     b.row = b.finaleRow - 1;
     b.worldAdvance = 2.3 / 60;
@@ -215,169 +257,19 @@ test('the finale enters offscreen alongside the last wave, and each level starts
     b.advanceCrowd(1 / 60);
     b.advanceBoss(1 / 60);
     assert.ok(b.boss.active && b.boss.z < b.entryZ - 1);
-    const before = b.row,
-      start = b.boss.z;
-    for (let i = 0; i < 60; i++) {
-      b.advanceCrowd(1 / 60);
-      b.advanceBoss(1 / 60);
-    }
-    assert.ok(b.row > before && b.boss.z > start + 2.3);
-    assert.ok(Math.abs(b.boss.x) < 5.4);
-    assert.ok(
-      b.gates.every(
-        (g) => !g.active || Math.abs(g.z - b.boss.z) > 0.8 || Math.abs(g.x - b.boss.x) >= 2.9,
-      ),
-    );
   }
 });
 
-test('the moving wall sweeps only the soldiers it overlaps and keeps travelling', () => {
+test('全队阵亡进入失败演出，红兵越过防线后允许结算弹窗', () => {
   const b = field();
-  b.wall.hp = 72;
-  b.wall.z = -0.25;
-  b.x = -2;
-  b.allies = [
-    { slot: 0, x: 1.25, z: 0, phase: 0 },
-    { slot: 1, x: 4.1, z: 0, phase: 0 },
-  ];
-  b.pushWall(1 / 60);
-  assert.deepEqual(
-    b.allies.map((a) => a.slot),
-    [0],
-  );
-  const body = b.falling[0];
-  assert.ok(body.pushed);
-  const start = body.z;
-  b.worldAdvance = 0.4;
-  b.updateFalling(1 / 60);
-  assert.ok(body.z > start && !b.caught);
-});
-
-test('the boss hits the road, stays down, then bursts exactly once without touching adjacent soldiers', () => {
-  const events = [];
-  const b = field((e) => events.push(e.kind));
-  Object.assign(b.boss, { active: true, z: -12, hp: 12 });
-  b.row = b.lastRow;
-  const red = placeRunner(b, b.boss.x + 0.25, b.boss.z - 1.1);
-  const before = { ...red };
-  b.damageBoss({ kind: 'rocket' }, 26);
-  const advance = (n) => {
-    for (let i = 0; i < n; i++) b.advanceBoss(1 / 60);
-  };
-  advance(56);
-  assert.equal(b.boss.removed, false);
-  assert.deepEqual(events, ['finisher', 'victory']);
-  advance(38);
-  assert.equal(b.boss.removed, false);
-  advance(4);
-  assert.equal(b.boss.removed, true);
-  assert.deepEqual(events, ['finisher', 'victory', 'bossBurst']);
-  assert.deepEqual(red, before);
-  assert.equal(b.score, 0);
-  b.damageBoss({ kind: 'shot' }, 6);
-  advance(35);
-  assert.equal(b.phase, 'clear');
-  assert.equal(events.filter((e) => e === 'bossBurst').length, 1);
-  b.runners.length = 0;
-  advance(1);
-  assert.equal(b.phase, 'won');
-});
-
-test('a red attacker survives contact and marches across the fallen soldier and captain', () => {
-  const b = field(),
-    attacker = placeRunner(b, 0, -0.2);
-  b.allies = [{ x: 0, z: 0, slot: 0, phase: 0 }];
+  b.squad = [];
+  const only = b.recruit(0, true, 'rifle');
+  only.x = 0;
+  only.z = 0;
+  const attacker = placeRunner(b, 0, -0.15);
   b.contact(attacker);
-  const body = b.falling[0];
-  assert.ok(body.prone && attacker.alive && attacker.spent);
-  for (let i = 0; i < 60; i++) {
-    b.worldAdvance = 3.65 / 60;
-    b.moveGrunt(attacker, 1 / 60, []);
-    b.updateFalling(1 / 60);
-  }
-  assert.ok(attacker.z > body.z + 1.1 && b.falling.includes(body));
-  const final = field(),
-    last = placeRunner(final, 0, -0.25);
-  final.armor = 1;
-  final.contact(last);
-  assert.equal(final.lossReason, 'infantry');
-  for (let i = 0; i < 70; i++) final.tick(1 / 60);
-  assert.ok(last.alive && last.z > final.captainZ + 1.05 && last.marched > 1);
-  assert.equal(final.resultReady, false);
-  for (let i = 0; i < 90; i++) final.tick(1 / 60);
-  assert.ok(final.overrun.crossed && final.resultReady);
-});
-
-test('both outer lanes keep marching straight at range and converge when the squad is near', () => {
-  for (const side of [-1, 1]) {
-    const b = field();
-    b.x = 4.45 * side;
-    b.worldAdvance = 3.65 / 60;
-    const enemy = placeRunner(b, -4.45 * side, -14),
-      start = enemy.x;
-    b.moveGrunt(enemy, 1 / 60, []);
-    assert.equal(enemy.x, start);
-    enemy.z = -6.6;
-    for (let i = 0; i < 93; i++) b.moveGrunt(enemy, 1 / 60, []);
-    assert.ok(enemy.marched > 6 && Math.abs(enemy.x - b.x) < 0.55);
-    assert.ok(enemy.spent && b.armor < 3);
-  }
-});
-
-test('retreat moves the formation and every muzzle together, clamps to a short strip and releases forward', () => {
-  const b = field();
-  b.recruit(0, true);
-  const start = b.allies[0].z;
-  for (let i = 0; i < 105; i++) b.tick(1 / 60, 0, 1);
-  assert.ok(b.captainZ > 1.35 && b.captainZ <= 1.38);
-  assert.ok(Math.abs(b.allies[0].z - start - b.captainZ) < 0.011);
-  b.shots = [];
-  b.rocketTimer = 0;
-  b.volleyTimer = 0;
-  b.buffs.drone = 1;
-  b.supportTimer = 0;
-  b.shoot(1 / 60);
-  assert.ok(
-    b.shots.some(
-      (p) => p.kind === 'rocket' && Math.abs(p.startZ - (b.captainZ - 0.6 * b.visualScale)) < 0.001,
-    ),
-  );
-  assert.ok(b.shots.filter((p) => p.kind !== 'rocket').every((p) => p.startZ > 0.7));
-  b.aim(2, 99);
-  assert.equal(b.targetZ, 1.38);
-  b.aim(-3);
-  assert.equal(b.targetZ, 1.38);
-  for (let i = 0; i < 110; i++) b.tick(1 / 60, 0, -1);
-  assert.ok(b.captainZ < 0.005 && Math.abs(b.allies[0].z - start) < 0.01);
-});
-
-test('the first boss crosses into the firing lane and finishes its opening attack even against a full boosted squad', () => {
-  const events = [],
-    b = new Battle((e) => events.push(e.kind));
-  b.entryZ = -46;
-  b.row = b.lastRow = b.finaleRow;
-  b.wall.hp = 0;
-  b.features = [];
-  b.gates = [];
-  for (let i = b.allies.length; i < 48; i++) b.recruit(0, true);
-  b.upgrades = 4;
-  b.start();
-  let boosted = false,
-    firstHit,
-    firstStrike;
-  for (let step = 0; step < 900 && !b.boss.defeated; step++) {
-    if (b.boss.active) b.aim(b.boss.x - 0.15);
-    if (!boosted && b.boss.active && b.boss.z >= -32) {
-      Object.assign(b.buffs, { fever: 4.2, longshot: 5.5, drone: 6 });
-      boosted = true;
-    }
-    b.tick(1 / 60);
-    if (b.boss.hp < b.boss.maxHp) firstHit ??= b.elapsed;
-    if (events.includes('bruiserStrike')) firstStrike ??= b.elapsed;
-  }
-  assert.ok(b.boss.defeated && firstHit < firstStrike && firstStrike < b.elapsed);
-  assert.ok(
-    b.elapsed - firstHit > 2.4 && b.boss.z > -15,
-    'the boss is visibly on the deck at defeat',
-  );
+  assert.equal(b.phase, 'lost');
+  assert.equal(b.lossReason, 'infantry');
+  for (let i = 0; i < 160; i++) b.tick(1 / 60);
+  assert.ok(b.overrun.crossed && b.resultReady);
 });

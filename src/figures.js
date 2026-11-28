@@ -206,12 +206,13 @@ export function createTroopGeometry(side, detail = 'near') {
   const headSides = far ? 5 : 12;
   for (const sign of [-1, 1]) {
     parts.limb = sign;
-    const x = sign * 0.081;
+    // 拓宽左右脚站距并收窄内侧靴边，彻底消除行走时双脚粘连感
+    const x = sign * 0.118;
     parts.shape(
       [
-        [0.01, 0.058, 0.105, x, -0.031],
-        [0.05, 0.068, 0.11, x, -0.032],
-        [0.12, 0.05, 0.067, x],
+        [0.01, 0.05, 0.102, x, -0.028],
+        [0.05, 0.058, 0.108, x, -0.03],
+        [0.12, 0.046, 0.064, x],
       ],
       0x352d30,
       { sides: far ? 4 : 6, power: 0.72 },
@@ -219,17 +220,17 @@ export function createTroopGeometry(side, detail = 'near') {
     if (!far) {
       parts.shape(
         [
-          [0.009, 0.059, 0.107, x, -0.031],
-          [0.028, 0.071, 0.114, x, -0.035],
-          [0.046, 0.07, 0.111, x, -0.035],
+          [0.009, 0.052, 0.104, x, -0.028],
+          [0.028, 0.06, 0.11, x, -0.032],
+          [0.046, 0.059, 0.108, x, -0.032],
         ],
         0x242a35,
         { sides: 8, power: 0.74 },
       );
       parts.ell(
         red ? 0x5e514e : 0x396b98,
-        [x, 0.19, -0.052],
-        [0.052, 0.059, 0.03],
+        [x, 0.19, -0.05],
+        [0.048, 0.056, 0.028],
         zero,
         'cloth',
         8,
@@ -238,9 +239,9 @@ export function createTroopGeometry(side, detail = 'near') {
     }
     parts.shape(
       [
-        [0.075, 0.055, 0.058, x],
-        [0.22, 0.068, 0.074, x * 0.91],
-        [0.3, 0.073, 0.078, x * 0.83],
+        [0.075, 0.048, 0.054, x],
+        [0.22, 0.06, 0.068, x * 0.92],
+        [0.3, 0.065, 0.072, x * 0.86],
       ],
       red ? 0x664333 : 0x2c5980,
       { sides: far ? 4 : 6 },
@@ -499,8 +500,79 @@ export function fieldEquipment(role) {
   return p.joinGeometry();
 }
 
+/**
+ * 为我方各特色兵种与合成大兵生成高辨识度 3D 挂装装备（蓝队朝向 -Z，相机位于 +Z 俯视）：
+ * - shield：前排能量重盾
+ * - flame：双联高压火焰燃料罐 + 喷火嘴
+ * - tesla：发光特斯拉磁暴线圈背包 + 电弧叉
+ * - assault：双持蓝钢连射重机枪 + 鎏金双肩甲
+ * - pyro：肩扛赤橙四联火箭炮 + 背部导弹包
+ * - storm：双肩青光磁暴塔 + 长管电浆步枪
+ */
+export function allyGear(kind) {
+  const p = new Parts();
+  if (kind === 'shield') {
+    // 弧形蓝银能量盾牌立在士兵正前方（-Z）+ 金色外框与核心能源条
+    p.box(0x1f62a8, [0, 0.42, -0.34], [0.56, 0.62, 0.07], [0.12, 0, 0], 'metal');
+    p.box(0x7be8ff, [0, 0.44, -0.382], [0.4, 0.44, 0.025], [0.12, 0, 0], 'lacquer');
+    p.box(0xffd24c, [0, 0.72, -0.31], [0.6, 0.065, 0.085], [0.12, 0, 0], 'metal');
+    p.box(0xffd24c, [0, 0.14, -0.37], [0.52, 0.06, 0.08], [0.12, 0, 0], 'metal');
+    // 背面稳压护甲块（方便玩家背视角一眼辨识重盾兵）
+    p.box(0x2867a8, [0, 0.43, 0.165], [0.3, 0.28, 0.09], zero, 'metal');
+    p.box(0x88f0ff, [0, 0.45, 0.22], [0.16, 0.14, 0.03], zero, 'lacquer');
+  } else if (kind === 'flame') {
+    // 醒目的红橙双联燃料罐 + 顶盖金阀 + 喷火枪管
+    for (const s of [-1, 1]) {
+      p.add(beam([s * 0.095, 0.25, 0.175], [s * 0.095, 0.63, 0.175], 0.072, 0.072, 10), 0xf04824);
+      p.add(beam([s * 0.095, 0.61, 0.175], [s * 0.095, 0.69, 0.175], 0.045, 0.045, 8), 0xffcf48);
+      p.box(0x2b3340, [s * 0.095, 0.44, 0.175], [0.155, 0.042, 0.155], zero, 'metal');
+    }
+    p.add(beam([0.23, 0.36, 0.06], [0.23, 0.44, -0.46], 0.048, 0.042, 8), 0x353c48);
+    p.add(beam([0.23, 0.44, -0.45], [0.23, 0.45, -0.58], 0.062, 0.038, 8), 0xff8a24);
+  } else if (kind === 'tesla') {
+    // 背部青色特斯拉线圈塔 + 双铜环 + 发光电球
+    p.box(0x264461, [0, 0.42, 0.16], [0.26, 0.34, 0.11], zero, 'metal');
+    p.add(beam([0, 0.46, 0.2], [0, 0.94, 0.2], 0.044, 0.034, 8), 0x3a6a8c);
+    for (const y of [0.62, 0.72, 0.82]) {
+      p.add(beam([0, y, 0.2], [0, y + 0.035, 0.2], 0.105, 0.105, 10), 0xffc34d);
+    }
+    p.ell(0x7affff, [0, 0.97, 0.2], [0.1, 0.1, 0.1], zero, 'lacquer', 10, 6);
+    p.add(beam([0.22, 0.36, 0.02], [0.22, 0.44, -0.48], 0.038, 0.032, 8), 0x34d8ff);
+  } else if (kind === 'assault') {
+    // T2 双枪突击兵：鎏金双肩甲 + 双持加长重机枪 + 战术背箱
+    for (const s of [-1, 1]) {
+      p.ell(0xffcb3d, [s * 0.21, 0.51, 0], [0.125, 0.095, 0.135], zero, 'metal', 10, 6);
+      p.add(beam([s * 0.24, 0.37, 0.08], [s * 0.24, 0.4, -0.52], 0.046, 0.04, 8), 0x293b4f);
+      p.add(beam([s * 0.24, 0.4, -0.5], [s * 0.24, 0.4, -0.62], 0.052, 0.048, 8), 0x62dcff);
+    }
+    p.box(0x244e78, [0, 0.43, 0.18], [0.3, 0.3, 0.14], zero, 'metal');
+    p.box(0xffd24c, [0, 0.52, 0.26], [0.22, 0.06, 0.035], zero, 'metal');
+  } else if (kind === 'pyro') {
+    // T2 烈焰火箭兵：肩扛大口径烈焰火箭炮 + 炽红双肩甲 + 导弹背筒
+    p.add(beam([0.24, 0.64, 0.24], [0.24, 0.68, -0.54], 0.105, 0.108, 12), 0xd83b22);
+    p.add(beam([0.24, 0.68, -0.52], [0.24, 0.69, -0.63], 0.125, 0.115, 12), 0xffcb3d);
+    p.add(beam([0.24, 0.64, 0.22], [0.24, 0.63, 0.31], 0.122, 0.11, 12), 0x333845);
+    for (const s of [-1, 1]) {
+      p.ell(0xff6b26, [s * 0.21, 0.51, 0], [0.13, 0.1, 0.14], zero, 'lacquer', 10, 6);
+    }
+    p.box(0x452424, [-0.04, 0.45, 0.19], [0.28, 0.34, 0.15], zero, 'metal');
+    p.ell(0xffae33, [-0.04, 0.66, 0.19], [0.095, 0.095, 0.095], zero, 'lacquer', 8, 6);
+  } else {
+    // storm T2 雷霆电浆兵：双肩磁暴电弧柱 + 青蓝高能背环 + 长管电浆炮
+    for (const s of [-1, 1]) {
+      p.add(beam([s * 0.22, 0.48, 0.12], [s * 0.25, 0.96, 0.14], 0.052, 0.04, 8), 0x265878);
+      p.ell(0x7affff, [s * 0.25, 0.99, 0.14], [0.095, 0.095, 0.095], zero, 'lacquer', 10, 6);
+      p.ell(0x3ad2ff, [s * 0.2, 0.5, 0], [0.12, 0.095, 0.13], zero, 'metal', 10, 6);
+    }
+    p.add(beam([0.24, 0.4, 0.06], [0.24, 0.45, -0.64], 0.052, 0.042, 8), 0x263f59);
+    p.add(beam([0.24, 0.45, -0.35], [0.24, 0.45, -0.62], 0.068, 0.058, 8), 0x6ef6ff);
+  }
+  return p.joinGeometry();
+}
+
 function captainLeg(parent, sign, palette) {
-  const hip = joint(parent, sign * 0.117, 0.607, 0);
+  // 适度加宽重炮队长双腿间距，步态更沉稳利落
+  const hip = joint(parent, sign * 0.134, 0.607, 0);
   const leg = new Parts();
   leg.shape(
     [
@@ -545,7 +617,8 @@ function captainLeg(parent, sign, palette) {
   return hip;
 }
 
-export function createCaptain() {
+export function createCaptain(variant = 'captain') {
+  const isTitan = variant === 'titan';
   const root = new THREE.Group();
   const palette = finishes();
   const body = joint(root);
@@ -801,10 +874,41 @@ export function createCaptain() {
   weapon.box(0x76cbec, [0, 0.147, -0.12], [0.103, 0.023, 0.105], zero, 'metal');
   weapon.box(0x31465a, [0.098, 0.066, 0.061], [0.052, 0.047, 0.189], zero, 'metal');
   weapon.ell(0x84c6e7, [0.123, 0.065, 0.02], [0.012, 0.022, 0.036], zero, 'lacquer');
+  if (isTitan) {
+    // 终极钢铁指挥官：鎏金顶冠、双肩厚金甲、左肩副炮与背部发光能量翼
+    const titanTrim = new Parts();
+    titanTrim.box(0xffd23f, [0, 0.56, 0.02], [0.34, 0.1, 0.24], zero, 'metal');
+    titanTrim.ell(0xfff08a, [0, 0.66, 0.02], [0.11, 0.11, 0.11], zero, 'lacquer', 10, 6);
+    titanTrim.attach(head, palette);
+
+    const titanWings = new Parts();
+    for (const s of [-1, 1]) {
+      titanWings.ell(0xffc938, [s * 0.34, 0.36, 0], [0.155, 0.13, 0.17], zero, 'metal', 10, 6);
+      titanWings.box(
+        0x2a7cd4,
+        [s * 0.44, 0.48, 0.26],
+        [0.44, 0.16, 0.06],
+        [0.2, -s * 0.45, s * 0.36],
+        'lacquer',
+      );
+      titanWings.box(
+        0x79f2ff,
+        [s * 0.52, 0.54, 0.3],
+        [0.32, 0.075, 0.03],
+        [0.2, -s * 0.45, s * 0.36],
+        'lacquer',
+      );
+    }
+    // 左侧副联重炮
+    titanWings.add(beam([-0.3, 0.69, -0.52], [-0.3, 0.69, 0.34], 0.11, 0.115, 14), 0xffbd38, zero, [1, 1, 1], zero, 'metal');
+    titanWings.add(beam([-0.3, 0.69, -0.56], [-0.3, 0.69, -0.48], 0.135, 0.135, 14), 0x79f2ff, zero, [1, 1, 1], zero, 'lacquer');
+    titanWings.attach(torso, palette);
+  }
   weapon.attach(cannon, palette);
   const muzzle = joint(cannon, 0, 0, -0.57);
   let uniform;
   function paint(portrait, reverse) {
+    if (isTitan) return; // 终极钢铁指挥官常驻精雕 3D 鎏金机甲，极具辨识度
     uniform = createFieldCaptain(portrait, reverse);
     body.visible = false;
     root.add(uniform.mesh);

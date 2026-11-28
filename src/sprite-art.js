@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import { helmetPaintGLSL } from './helmet-paint.js';
 import { footReach, marchAngle, sampleFeet } from './infantry-walk.js';
+import { UNIT_DEFS } from './units.js';
 
-// The source paintings include a few transparent edge pixels to keep minified art clean.
-// Each pivot sits between the boots. The captain's cannon makes his crop asymmetric.
+// 原画角色图元配置：队长批次扩至 12 以支持多尊合成重炮队长与钢铁指挥官
 const designs = {
-  ally: { width: 0.49, height: 0.88, pivot: 0.49, pad: 0.008, capacity: 180, grid: [7, 10] },
-  captain: { width: 1.16, height: 1.73, pivot: 0.43, pad: 0.009, capacity: 1, grid: [16, 20] },
-  grunt: { width: 0.54, height: 0.88, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [7, 10] },
+  ally: { width: 0.49, height: 0.88, pivot: 0.49, pad: 0.008, capacity: 220, grid: [8, 10] },
+  captain: { width: 1.16, height: 1.73, pivot: 0.43, pad: 0.009, capacity: 12, grid: [16, 20] },
+  grunt: { width: 0.54, height: 0.88, pivot: 0.5, pad: 0.011, capacity: 1800, grid: [8, 10] },
 };
 const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.smoothstep;
@@ -30,7 +30,8 @@ const vertexShader = `
     colorTreatment = treatment.xyz;
     vec2 point = vec2(uv.x - pivot, (uv.y-padding)/(1.0-2.0*padding));
     float stride = feet.x;
-    float sideSign = smoothstep(pivot-0.07,pivot+0.07,uv.x)*2.0-1.0;
+    // 锐化左右腿分缝并赋予轻度自然站距，移除内收横拉偏移，彻底消除双脚粘连
+    float sideSign = smoothstep(pivot-0.018,pivot+0.018,uv.x)*2.0-1.0;
     float boots = (1.0-smoothstep(0.08,0.34,uv.y));
     float arms = smoothstep(.15,.32,abs(uv.x-pivot)) * smoothstep(.22,.38,uv.y)
                * (1.0-smoothstep(.46,.63,uv.y));
@@ -39,12 +40,11 @@ const vertexShader = `
     #ifdef CAPTAIN
       arms *= mix(1.0,0.18,smoothstep(pivot,pivot+0.12,uv.x));
     #endif
-    point.x += swing * (0.042*arms-0.032*boots) + stride*.014*uv.y;
     float ankle = 1.0-smoothstep(.08,.21,uv.y);
     float chest = smoothstep(.28,.49,uv.y)*(1.0-smoothstep(.58,.72,uv.y));
-    point.x += sideSign*.017*lift*ankle + stride*.026*chest;
-    point.y += ankle*max(0.,-swing)*.024;
-    point.y += .141*lift*boots + .026*abs(feet.z)*(1.0-boots) + swing*.058*arms;
+    point.x += swing * (0.042*arms) + sideSign * (0.036*boots + 0.022*lift*ankle) + stride*.022*chest;
+    point.y += ankle*max(0.,-swing)*.022;
+    point.y += .148*lift*boots + .024*abs(feet.z)*(1.0-boots) + swing*.058*arms;
     float depthSwing = stride*.033*(uv.x-pivot)*chest + (boots*${footReach / 0.86}-arms*.16)*swing*dimensions.y;
     #ifdef ALLY
       depthSwing *= -1.0;
@@ -241,97 +241,120 @@ export async function createSpriteArt(scene) {
     for (const e of s.runners) {
       if (e.alive) batches.grunt.add(e.x, e.lift || 0, e.z, e.size, e.size, marchAngle(e), moving);
     }
-    for (const a of s.allies) {
-      const p = clamp(a.age / 0.32, 0, 1),
-        pop = 0.81 + 0.19 * p + 0.095 * Math.sin(p * Math.PI);
-      const tier = s.tier || 1;
-      // 进化精锐兵自带暖金/电浆光泽，直观呈现军团进化梯度
-      const elite =
-        (tier >= 4 || (tier === 3 && a.slot % 2 === 0) || (tier === 2 && a.slot % 4 === 0)) ? 1 : 0;
-      const goldTint = Math.max(0.8 * (1 - p), elite * (tier >= 4 ? 0.34 : 0.2));
-      const eliteScale = elite ? 1.07 : 1;
+    const lean = clamp(s.velocity * 0.007, -0.095, 0.095);
+    const rescueLift = s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0;
+    // 全员按真实兵种编成绘制（不再渲染开局固定队长；只有真正合成出 T3/T4 才绘制队长/指挥官）
+    for (const u of s.squad) {
+      const def = UNIT_DEFS[u.kind] || UNIT_DEFS.rifle;
+      const p = clamp(u.age / 0.34, 0, 1);
+      const pop = 0.72 + 0.28 * p + 0.14 * Math.sin(p * Math.PI) + (u.mergeBirth || 0) * 0.22;
+      if (def.tier >= 3) {
+        if (!full) continue; // hybrid 模式下由 view.js 渲染 3D 重炮队长/钢铁指挥官模型
+        const capScale = (u.kind === 'titan' ? 1.28 : 1.04) * pop;
+        const gold = u.kind === 'titan' ? 0.56 : 0.22;
+        batches.captain.add(
+          u.x,
+          rescueLift + 0.04 * Math.sin(p * Math.PI),
+          u.z,
+          capScale,
+          capScale,
+          step * 0.83 + u.phase,
+          moving,
+          0,
+          u.recoil || 0,
+          Math.max(gold, (u.mergeBirth || 0) * 0.8),
+          0.16 * (u.mergeBirth || 0) + 0.52 * (u.hurt || 0),
+          0,
+          lean,
+          0,
+        );
+        continue;
+      }
+      const unitScale = def.scale * pop;
+      const tierGold =
+        def.tier === 2
+          ? u.kind === 'pyro'
+            ? 0.44
+            : 0.26
+          : u.kind === 'flame'
+            ? 0.38
+            : u.kind === 'shield'
+              ? 0.08
+              : 0;
+      const goldTint = Math.max(0.75 * (1 - p), (u.mergeBirth || 0) * 0.85, tierGold);
+      const whiteTint =
+        0.22 * (1 - p) +
+        (u.hurt || 0) * 0.55 +
+        (u.kind === 'tesla' || u.kind === 'storm' ? 0.16 : 0) +
+        (s.buffs.fever > 0 || s.overdriveActive > 0 ? 0.14 : 0);
       batches.ally.add(
-        a.x,
-        0.035 * Math.sin(p * Math.PI),
-        a.z,
-        pop * eliteScale,
-        pop * eliteScale,
-        step + a.phase,
+        u.x,
+        rescueLift + 0.045 * Math.sin(p * Math.PI),
+        u.z,
+        unitScale,
+        unitScale,
+        step + u.phase,
         moving,
         0,
         0,
         goldTint,
-        0.22 * (1 - p) + (s.buffs.fever > 0 ? 0.14 : 0),
+        whiteTint,
+        0,
+        lean * 0.65,
       );
+    }
+    // 合成飞旋汇聚演出中的能量化身小兵
+    for (const m of s.merges || []) {
+      const t = clamp(m.age / m.duration, 0, 1);
+      const scale = (UNIT_DEFS[m.kind]?.scale || 1) * (1 - 0.52 * t);
+      batches.ally.add(m.x, m.y, m.z, scale, scale, step * 1.4, 0.4, t * 2.2, 0, 0.88, 0.45);
     }
     for (const f of s.deliveries) {
       if (f.slot == null || f.age < 0) continue;
-      const size = 0.65 + 0.35 * f.progress;
-      batches.ally.add(f.x, f.y, f.z, size, size, step + f.phase, 0.55, 0, 0, 0.42, 0.24);
+      const unitScale = UNIT_DEFS[f.unitKind]?.scale || 1;
+      const size = (0.65 + 0.35 * f.progress) * unitScale;
+      batches.ally.add(f.x, f.y, f.z, size, size, step + f.phase, 0.55, 0, 0, 0.45, 0.26);
     }
-    {
-      for (const e of s.falling) {
-        if (e.prone) {
-          const fallen = smooth(e.t, 0, 0.42);
-          const size = e.size * (s.overrun ? 1 : 1 - smooth(e.t, 1.78, 2.1));
-          batches.ally.add(
-            e.x,
-            0.09 * fallen,
-            e.z,
-            size,
-            size,
-            0,
-            0,
-            0.1 * fallen * e.dir,
-            0,
-            0,
-            0,
-            0.3 * fallen,
-            0,
-            1.5 * fallen,
-          );
-          continue;
-        }
-        const p = clamp(e.t / 0.72, 0, 1),
-          size = e.size * (1 - smooth(p, 0.55, 1));
-        const tilt = e.roll * e.t + 0.16 * Math.sin(e.spin * e.t);
-        const batch = e.side === 'red' ? batches.grunt : batches.ally;
-        batch.add(
+    for (const e of s.falling) {
+      if (e.prone) {
+        const fallen = smooth(e.t, 0, 0.42);
+        const size = e.size * (s.overrun ? 1 : 1 - smooth(e.t, 1.78, 2.1));
+        batches.ally.add(
           e.x,
-          e.y,
+          0.09 * fallen,
           e.z,
           size,
           size,
-          step + e.phase,
           0,
-          tilt,
           0,
-          0.55 * (1 - smooth(p, 0.08, 0.45)),
-          0.72 * (1 - smooth(p, 0.03, 0.26)),
-          0.22 * smooth(p, 0.25, 0.75),
+          0.1 * fallen * e.dir,
+          0,
+          0,
+          0,
+          0.3 * fallen,
+          0,
+          1.5 * fallen,
         );
+        continue;
       }
-      if (full && (s.phase !== 'lost' || s.overrun || s.endTime < 0.25)) {
-        const size = s.visualScale,
-          down = s.overrun ? smooth(s.endTime, 0, 0.5) : 0,
-          fade = s.phase === 'lost' && !s.overrun ? clamp(s.endTime / 0.25, 0, 1) : 0;
-        batches.captain.add(
-          s.x,
-          s.rope ? 0.68 * Math.sin((Math.PI * s.rope.age) / 0.58) : 0.1 * down,
-          s.captainZ,
-          size,
-          size * (1 - 0.55 * fade),
-          step * 0.83,
-          s.overrun ? 0 : moving,
-          -0.38 * fade - 0.12 * down,
-          s.recoil,
-          0.66 * s.mergeGlow,
-          0.14 * s.mergeGlow + 0.48 * s.hurt + 0.32 * fade,
-          0,
-          clamp(s.velocity * 0.007, -0.095, 0.095),
-          1.5 * down,
-        );
-      }
+      const p = clamp(e.t / 0.72, 0, 1),
+        size = e.size * (1 - smooth(p, 0.55, 1));
+      const tilt = e.roll * e.t + 0.16 * Math.sin(e.spin * e.t);
+      const batch = e.side === 'red' ? batches.grunt : batches.ally;
+      batch.add(
+        e.x,
+        e.y,
+        e.z,
+        size,
+        size,
+        step + e.phase,
+        0,
+        tilt,
+        0,
+        0.55 * (1 - smooth(p, 0.08, 0.45)),
+        0.72 * (1 - smooth(p, 0.03, 0.26)),
+        0.22 * smooth(p, 0.25, 0.75),
+      );
     }
     for (const batch of groups) batch.flush();
   }

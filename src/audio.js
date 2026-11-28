@@ -35,6 +35,8 @@ const cues = {
   evolve: { duration: 0.82, gain: 0.32, interval: 0.6 },
   overdrive: { duration: 0.76, gain: 0.38, interval: 0.6 },
   bossEnrage: { duration: 0.72, gain: 0.34, interval: 0.8 },
+  barrelBlast: { duration: 0.62, gain: 0.42, interval: 0.12 },
+  lavaBurst: { duration: 0.56, gain: 0.32, interval: 0.25 },
   buy: { duration: 0.32, gain: 0.24, interval: 0.12 },
 };
 
@@ -245,6 +247,15 @@ function buildSound(context, kind) {
       tone(0, 0.56, 135, 58, 0.88, 0.55);
       noise(0.04, 0.52, 1150, 0.72);
       tone(0.18, 0.42, 180, 92, 0.52, 0.35);
+      break;
+    case 'barrelBlast':
+      tone(0, 0.42, 155, 38, 0.98, 0.55);
+      noise(0, 0.14, 3800, 0.88);
+      noise(0.04, 0.46, 720, 0.9);
+      break;
+    case 'lavaBurst':
+      tone(0, 0.46, 120, 48, 0.72, 0.4);
+      noise(0, 0.5, 1650, 0.86);
       break;
     case 'buy':
       bell(0, 0.12, 880, 0.52);

@@ -12,7 +12,7 @@ import {
   totalStars,
 } from '../src/progression.js';
 
-test('军团进化随招募与击杀自动升阶并触发进化事件与播报', () => {
+test('军团进化随合成与击杀升阶并触发进化播报与暴击增益', () => {
   const events = [];
   const b = new Battle((e) => events.push(e.kind));
   b.start();
@@ -20,13 +20,13 @@ test('军团进化随招募与击杀自动升阶并触发进化事件与播报',
   b.addEvo(EVOLUTION_TIERS[1].need);
   assert.equal(b.tier, 2);
   assert.ok(events.includes('evolve'));
-  assert.ok(b.popups.some((p) => p.kind === 'evolve' && p.text.includes('Lv.2')));
+  assert.ok(b.popups.some((p) => p.kind === 'evolve' && p.text.includes('军团进阶')));
   b.addEvo(EVOLUTION_TIERS[3].need);
   assert.equal(b.tier, 4);
   assert.ok(b.critChance >= EVOLUTION_TIERS[3].critBonus);
 });
 
-test('连击累加提升伤害倍率，受击重置连击，超时自动清零', () => {
+test('连击累加提升伤害倍率，超时后自动归零并保留最高记录', () => {
   const b = new Battle();
   b.start();
   b.columns = [];
@@ -39,8 +39,7 @@ test('连击累加提升伤害倍率，受击重置连击，超时自动清零',
   b.addCombo(70);
   assert.equal(b.maxCombo, 86);
   assert.ok(b.comboDamageMult >= 1.18);
-  // 超时后连击归零
-  for (let i = 0; i < 210; i++) b.tick(1 / 60);
+  for (let i = 0; i < 220; i++) b.tick(1 / 60);
   assert.equal(b.combo, 0);
   assert.equal(b.maxCombo, 86);
 });
@@ -65,7 +64,7 @@ test('战术超载满能释放 5 联暴击重炮并激活护盾与超频期', ()
   assert.equal(rockets.length, 5);
 });
 
-test('所有 Boss 在血量跌破 50% 后进入狂暴状态并加快技能节奏', () => {
+test('Boss 血量跌破 50% 后进入狂暴连砸状态并触发警报事件', () => {
   const events = [];
   const b = new Battle((e) => events.push(e.kind));
   b.reset(1);
@@ -82,7 +81,7 @@ test('所有 Boss 在血量跌破 50% 后进入狂暴状态并加快技能节奏
   assert.ok(events.includes('bossEnrage'));
 });
 
-test('局外星级结算、军饷累计、军械整备购买与加成注入完整闭环', () => {
+test('三关星级（含合成重炮队长 2★ 条件）、军饷与军械整备升级闭环', () => {
   const mem = new Map();
   const mockStorage = {
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
@@ -94,13 +93,13 @@ test('局外星级结算、军饷累计、军械整备购买与加成注入完�
   b.start();
   b.score = 120;
   b.maxCombo = 45;
-  b.armor = 3;
+  b.recruit(0, true, 'captain'); // 达成合成重炮队长 2★ 条件
   const res = evaluateRun(state, b, true);
   assert.equal(res.stars, 3);
   assert.equal(totalStars(state), 3);
   assert.ok(state.coins >= 150);
 
-  // 购买起始编制升级
+  // 购买起始编制升级（+2 基础步兵）
   const firstCost = ARMORY_UPGRADES[0].costs[0];
   state.coins = firstCost + 10;
   assert.equal(buyUpgrade(state, 'squad'), true);
@@ -115,5 +114,5 @@ test('局外星级结算、军饷累计、军械整备购买与加成注入完�
   const b2 = new Battle();
   b2.reset(1);
   b2.applyBonuses(computeBonuses(loaded));
-  assert.equal(b2.allies.length, 3); // 基础 1 + 升级额外 2
+  assert.equal(b2.squad.length, 5); // 基础 3 名步兵 + 升级额外 2 名步兵
 });

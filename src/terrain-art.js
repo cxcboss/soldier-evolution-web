@@ -106,23 +106,34 @@ function coverHardware(variant) {
   return { base: batch(base), sections };
 }
 
-function dropHardware() {
-  const crate = [
-    slab(1.52, 1.19, 1.24, '#a97748', 0, 0.82, 0, 0.055),
-    slab(1.68, 0.15, 1.39, iron, 0, 0.25, 0, 0.033),
-    slab(1.65, 0.12, 1.38, '#66737b', 0, 1.46, 0, 0.03),
-    slab(1.58, 0.25, 0.074, '#ffc76c', 0, 1.12, 0.631),
-    ring(0.175, 0.046, gold, 0, 1.66, 0),
-  ];
-  for (const side of [-1, 1]) {
-    crate.push(slab(0.18, 1.34, 1.32, '#495866', side * 0.61, 0.86, 0, 0.025));
-    crate.push(slab(0.23, 0.17, 1.48, dark, side * 0.52, 0.11, 0, 0.03));
-    for (const y of [0.39, 1.32])
-      crate.push(drum(0.047, 0.047, 0.045, pale, side * 0.61, y, 0.669, turn(Math.PI / 2), 8));
-    crate.push(strut([side * 0.48, 0.44, 0.644], [-side * 0.47, 0.95, 0.644], 0.046, '#ddbb89', 6));
+function dropHardware(theme = 'quay') {
+  const crate = [];
+  if (theme === 'cinder') {
+    // 第 3 关熔心裂谷：炽热黑曜熔岩陨石球
+    crate.push(
+      part(new THREE.DodecahedronGeometry(0.84, 1), '#2c1e24', 0, 0.84, 0),
+      part(new THREE.IcosahedronGeometry(0.72, 1), '#ff5416', 0, 0.84, 0),
+      part(new THREE.OctahedronGeometry(0.56, 1), '#ffd54f', 0.24, 1.02, 0.16),
+      part(new THREE.OctahedronGeometry(0.46, 0), '#ff8624', -0.32, 0.72, 0.28),
+    );
+  } else {
+    crate.push(
+      slab(1.52, 1.19, 1.24, '#a97748', 0, 0.82, 0, 0.055),
+      slab(1.68, 0.15, 1.39, iron, 0, 0.25, 0, 0.033),
+      slab(1.65, 0.12, 1.38, '#66737b', 0, 1.46, 0, 0.03),
+      slab(1.58, 0.25, 0.074, '#ffc76c', 0, 1.12, 0.631),
+      ring(0.175, 0.046, gold, 0, 1.66, 0),
+    );
+    for (const side of [-1, 1]) {
+      crate.push(slab(0.18, 1.34, 1.32, '#495866', side * 0.61, 0.86, 0, 0.025));
+      crate.push(slab(0.23, 0.17, 1.48, dark, side * 0.52, 0.11, 0, 0.03));
+      for (const y of [0.39, 1.32])
+        crate.push(drum(0.047, 0.047, 0.045, pale, side * 0.61, y, 0.669, turn(Math.PI / 2), 8));
+      crate.push(strut([side * 0.48, 0.44, 0.644], [-side * 0.47, 0.95, 0.644], 0.046, '#ddbb89', 6));
+    }
+    for (let i = -2; i <= 2; i++)
+      crate.push(slab(0.09, 0.24, 0.02, dark, i * 0.22, 1.12, 0.676, 0, turn(0, 0, -0.42)));
   }
-  for (let i = -2; i <= 2; i++)
-    crate.push(slab(0.09, 0.24, 0.02, dark, i * 0.22, 1.12, 0.676, 0, turn(0, 0, -0.42)));
   const warning = [];
   for (let i = 0; i < 12; i++) {
     const a = (i * Math.PI) / 6;
@@ -170,9 +181,163 @@ function dropHardware() {
   return { base: batch(crate), halo, tint, sweep };
 }
 
-function hardware(kind, length = 4.4, direction = 1, variant) {
+/** 第 1 / 3 关：高爆连环汽油桶簇（3 桶三角紧簇 + 黄黑警示环 + 醒目爆破标识） */
+function barrelHardware() {
+  const parts = [];
+  const positions = [
+    [0, 0, -0.26, 1.06],
+    [-0.56, 0, 0.24, 0.96],
+    [0.56, 0, 0.24, 0.96],
+  ];
+  for (const [bx, , bz, sc] of positions) {
+    const h = 1.12 * sc;
+    const r = 0.36 * sc;
+    parts.push(
+      drum(r, r, h, '#e82d26', bx, h * 0.5, bz, null, 14),
+      drum(r * 1.045, r * 1.045, h * 0.22, '#ffd038', bx, h * 0.52, bz, null, 14),
+      drum(r * 1.06, r * 1.06, 0.06, '#2a2d36', bx, h * 0.24, bz, null, 14),
+      drum(r * 1.06, r * 1.06, 0.06, '#2a2d36', bx, h * 0.78, bz, null, 14),
+      drum(r * 0.96, r * 0.96, 0.07, '#4c5460', bx, h + 0.02, bz, null, 12),
+      drum(0.08 * sc, 0.08 * sc, 0.08, '#ffe066', bx + 0.14 * sc, h + 0.06, bz, null, 8),
+    );
+  }
+  // 底部金属托盘
+  parts.push(slab(1.96, 0.1, 1.24, dark, 0, 0.05, 0.05, 0.03));
+  return { base: batch(parts) };
+}
+
+/** 第 2 关：雷霆林谷巨型尖刺滚木（带独立滚转木筒 + 地面红色危险轨道预警带） */
+function rollerHardware() {
+  const laneTrack = new THREE.Mesh(
+    new THREE.PlaneGeometry(3.4, 9.5),
+    new THREE.MeshBasicMaterial({
+      color: '#ff4229',
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+  );
+  laneTrack.rotation.x = -Math.PI / 2;
+  laneTrack.position.set(0, 0.036, 4.75);
+  laneTrack.renderOrder = 2;
+
+  const logParts = [
+    // 横卧滚木主干
+    drum(0.56, 0.56, 3.55, '#8c5a32', 0, 0, 0, turn(0, 0, Math.PI / 2), 16),
+    drum(0.49, 0.49, 3.6, '#d9aa73', 0, 0, 0, turn(0, 0, Math.PI / 2), 14),
+  ];
+  // 3 道厚重铁箍 + 环形尖刺钉，滚动时极具动感
+  for (const x of [-1.25, 0, 1.25]) {
+    logParts.push(drum(0.59, 0.59, 0.2, dark, x, 0, 0, turn(0, 0, Math.PI / 2), 14));
+    for (let k = 0; k < 6; k++) {
+      const a = (k * Math.PI) / 3 + x * 0.4;
+      const spike = new THREE.ConeGeometry(0.095, 0.28, 5);
+      spike.rotateZ(-Math.PI / 2);
+      spike.rotateX(a);
+      logParts.push(
+        part(spike, '#f4c85a', x, Math.cos(a) * 0.66, Math.sin(a) * 0.66, turn(a, 0, 0)),
+      );
+    }
+  }
+  const rollDrum = batch(logParts);
+  rollDrum.position.set(0, 0.58, 0);
+  return { base: laneTrack, rollDrum };
+}
+
+/** 第 3 关：熔心裂谷熔岩间歇喷发裂口（黑曜石火山口 + 沸腾自发光岩浆池 + 预警光环 + 冲天熔岩喷泉柱） */
+function lavaVentHardware() {
+  const ringParts = [
+    drum(1.48, 1.82, 0.24, '#36232b', 0, 0.12, 0, null, 18),
+    ring(1.26, 0.22, '#522c34', 0, 0.22, 0, turn(Math.PI / 2)),
+  ];
+  for (let i = 0; i < 6; i++) {
+    const a = (i * Math.PI) / 3;
+    ringParts.push(
+      part(
+        new THREE.ConeGeometry(0.32, 0.58, 5),
+        i % 2 ? '#452b34' : '#63363b',
+        Math.cos(a) * 1.4,
+        0.32,
+        Math.sin(a) * 1.4,
+        turn(0.18, a, 0.14),
+      ),
+    );
+  }
+  const baseMesh = batch(ringParts);
+  // 裂口中心沸腾自发光熔岩池（不受暗面压暗，始终滚烫醒目）
+  const lavaPool = new THREE.Mesh(
+    (() => {
+      const g = new THREE.CircleGeometry(1.16, 24);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })(),
+    new THREE.MeshBasicMaterial({
+      color: '#ff5d14',
+      toneMapped: false,
+    }),
+  );
+  lavaPool.position.y = 0.22;
+  const lavaCore = new THREE.Mesh(
+    (() => {
+      const g = new THREE.CircleGeometry(0.62, 18);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })(),
+    new THREE.MeshBasicMaterial({
+      color: '#ffd64a',
+      toneMapped: false,
+    }),
+  );
+  lavaCore.position.y = 0.24;
+  baseMesh.add(lavaPool, lavaCore);
+
+  const ventGlow = new THREE.Mesh(
+    (() => {
+      const g = new THREE.RingGeometry(0.75, 1.0, 32);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })(),
+    new THREE.MeshBasicMaterial({
+      color: '#ff962e',
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  ventGlow.position.y = 0.055;
+  ventGlow.renderOrder = 3;
+
+  const plumeParts = [
+    drum(0.76, 1.08, 4.3, '#ff4510', 0, 2.15, 0, null, 14),
+    drum(0.45, 0.68, 4.55, '#ffcc38', 0, 2.28, 0, null, 12),
+    part(new THREE.SphereGeometry(1.0, 12, 8), '#ffe66e', 0, 4.3, 0),
+  ];
+  const ventPlume = new THREE.Mesh(
+    combine(plumeParts),
+    new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  ventPlume.renderOrder = 5;
+  ventPlume.visible = false;
+
+  return { base: baseMesh, ventGlow, ventPlume };
+}
+
+function hardware(kind, length = 4.4, direction = 1, variant, theme = 'quay') {
   if (kind === 'cover') return coverHardware(variant);
-  if (kind === 'skyfall') return dropHardware();
+  if (kind === 'skyfall') return dropHardware(theme);
+  if (kind === 'barrel') return barrelHardware();
+  if (kind === 'roller') return rollerHardware();
+  if (kind === 'lavaVent') return lavaVentHardware();
   const base = [],
     planks = [],
     moving = [];
@@ -561,17 +726,26 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
     b = new THREE.Vector3(),
     axis = new THREE.Vector3(),
     up = new THREE.Vector3(0, 1, 0);
-  function item(p) {
-    const key = [p.kind, p.variant || '', p.length || 0, p.direction || 0].join(':');
+  function item(p, theme) {
+    const key = [p.kind, p.variant || '', p.length || 0, p.direction || 0, p.kind === 'skyfall' ? theme : ''].join(':');
     if (!terrainAssets.has(key))
-      terrainAssets.set(key, hardware(p.kind, p.length, p.direction, p.variant));
+      terrainAssets.set(key, hardware(p.kind, p.length, p.direction, p.variant, theme));
     const template = terrainAssets.get(key),
       g = new THREE.Group(),
       base = template.base.clone();
     g.add(base);
     const sections = (template.sections || []).map((part) => part.clone());
     for (const section of sections) g.add(section);
-    let leaf, arrows, label, drop;
+    let leaf, arrows, label, drop, rollDrum, ventGlow, ventPlume;
+    if (template.rollDrum) {
+      rollDrum = template.rollDrum.clone();
+      g.add(rollDrum);
+    }
+    if (template.ventGlow) {
+      ventGlow = template.ventGlow.clone();
+      ventPlume = template.ventPlume.clone();
+      g.add(ventGlow, ventPlume);
+    }
     if (template.halo) {
       drop = {
         halo: template.halo.clone(),
@@ -593,21 +767,43 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
       arrows = template.arrows.clone();
       g.add(arrows);
     }
-    if (p.kind === 'cache' || p.kind === 'bridge' || p.kind === 'coil' || p.kind === 'cover') {
+    if (
+      p.kind === 'cache' ||
+      p.kind === 'bridge' ||
+      p.kind === 'coil' ||
+      p.kind === 'cover' ||
+      p.kind === 'barrel' ||
+      p.kind === 'roller'
+    ) {
       label = marker();
       g.add(label.mesh);
       label.mesh.position.set(
         0,
-        p.kind === 'cover' ? 0.25 : p.kind === 'cache' ? 0.66 : p.kind === 'coil' ? 0.55 : 0.43,
+        p.kind === 'cover'
+          ? 0.25
+          : p.kind === 'cache'
+            ? 0.66
+            : p.kind === 'coil'
+              ? 0.55
+              : p.kind === 'barrel'
+                ? 1.56
+                : p.kind === 'roller'
+                  ? 1.62
+                  : 0.43,
         p.kind === 'cover'
           ? 0.512
           : p.kind === 'bridge'
             ? p.length / 2 + 0.48
             : p.kind === 'coil'
               ? 0.56
-              : 0.397,
+              : p.kind === 'barrel'
+                ? 0.55
+                : p.kind === 'roller'
+                  ? 0.25
+                  : 0.397,
       );
-      if (p.kind === 'cover') label.mesh.scale.setScalar(0.78);
+      if (p.kind === 'cover' || p.kind === 'barrel' || p.kind === 'roller')
+        label.mesh.scale.setScalar(0.76);
     }
     if (p.kind === 'bridge')
       for (let i = 0; i < 2; i++) {
@@ -616,7 +812,7 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
         chains.push(m);
       }
     root.add(g);
-    return { g, base, leaf, arrows, chains, sections, label, drop };
+    return { g, base, leaf, arrows, chains, sections, label, drop, rollDrum, ventGlow, ventPlume };
   }
   function update(s) {
     const theme = s.route.theme;
@@ -674,10 +870,50 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
         if (v) v.g.visible = false;
         continue;
       }
-      const v = live.get(p) || item(p);
+      const v = live.get(p) || item(p, theme);
       live.set(p, v);
       v.g.visible = true;
       v.g.position.set(p.x, 0, p.z);
+      if (p.kind === 'barrel') {
+        v.g.rotation.z = Math.sin(s.elapsed * 75) * (p.flash || 0) * 0.08;
+        if (p.state !== 'ready') {
+          const shrink = 1 - THREE.MathUtils.smoothstep(p.age, 0, 0.16);
+          v.base.scale.setScalar(Math.max(0.001, shrink));
+          if (shrink <= 0.01) v.g.visible = false;
+        } else {
+          v.base.scale.setScalar(1);
+        }
+      }
+      if (p.kind === 'roller' && v.rollDrum) {
+        const ready = p.state === 'ready';
+        v.base.visible = ready;
+        v.base.material.opacity = 0.16 + 0.12 * Math.sin(s.elapsed * 12);
+        v.rollDrum.rotation.x = p.rollSpin || 0;
+        v.rollDrum.position.y = 0.58 + Math.abs(Math.sin((p.rollSpin || 0) * 2)) * 0.06;
+        if (!ready) {
+          const shrink = 1 - THREE.MathUtils.smoothstep(p.age, 0, 0.2);
+          v.rollDrum.scale.setScalar(Math.max(0.001, shrink));
+          if (shrink <= 0.01) v.g.visible = false;
+        } else {
+          v.rollDrum.scale.setScalar(1);
+        }
+      }
+      if (p.kind === 'lavaVent' && v.ventGlow && v.ventPlume) {
+        const r = p.radius || 2.05;
+        v.ventGlow.visible = Boolean(p.warming || p.erupting);
+        if (v.ventGlow.visible) {
+          const prog = p.ventProgress || 0;
+          const sc = p.erupting ? r * (1.05 + 0.08 * Math.sin(s.elapsed * 28)) : r * (0.45 + 0.55 * prog);
+          v.ventGlow.scale.setScalar(sc);
+          v.ventGlow.material.opacity = p.erupting ? 0.92 : 0.35 + 0.5 * prog;
+        }
+        v.ventPlume.visible = Boolean(p.erupting);
+        if (v.ventPlume.visible) {
+          v.ventPlume.rotation.y = s.elapsed * 7.5;
+          const pulse = 0.88 + 0.18 * Math.sin(s.elapsed * 32);
+          v.ventPlume.scale.set(pulse, 0.92 + 0.14 * Math.cos(s.elapsed * 26), pulse);
+        }
+      }
       if (v.drop) {
         const warning = p.state === 'warning',
           landed = p.state === 'landed';
@@ -765,7 +1001,11 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
                 ? '断索 '
                 : p.kind === 'coil'
                   ? '电 '
-                  : '箱 ') + Math.ceil(p.hp),
+                  : p.kind === 'barrel'
+                    ? '爆 '
+                    : p.kind === 'roller'
+                      ? '木 '
+                      : '箱 ') + Math.ceil(p.hp),
           );
       }
       if ((p.kind === 'cache' || p.kind === 'coil' || p.kind === 'cover') && p.state !== 'ready')

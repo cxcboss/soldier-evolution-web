@@ -7,9 +7,13 @@ const marks = {
   plus: helmets,
   squad: helmets,
   reserve: helmets,
-  merge: 'M3 16l17-10 5 8-16 10z M6 23l5-3 4 7-6 2z M21 5l3-2 6 10-3 2z',
-  range: 'M3 20l14-10 3 4L7 25z M14 7l15-4-6 15-2-7z',
-  longshot: 'M3 20L18 9l3 4L7 25z M16 6l14-4-6 14-2-7z M3 12l8-6 2 2-8 7z M12 26l7-6 2 2-7 6z',
+  merge: 'M16 2l4 8 9 1-6.5 6 1.5 9L16 21.5 8 26l1.5-9L3 11l9-1z',
+  shieldSquad: 'M16 2l12 5v8c0 6-5 12-12 15C9 27 4 21 4 15V7z M11 11h10v10H11z',
+  flameSquad:
+    'M16 2c3 7 9 8 8 15 2-1 3-3 4-5 6 12-5 18-12 17C7 27 4 20 8 12c0 3 2 4 3 4-1-6 4-9 5-14z',
+  teslaSquad: 'M17 1L5 17h9l-2 14 15-19h-9l4-11z',
+  double:
+    'M4 10l5 6-5 6h4l3-4 3 4h4l-5-6 5-6h-4l-3 4-3-4zm16 12v-4h5v-3h-5v-4h7V8H17v14h10v-3z',
   rapid: 'M3 11l8 5-8 5v-4l3-1-3-1z M11 8l12 8-12 8v-5l5-3-5-3z M22 9l8 7-8 7v-5l3-2-3-2z',
   shield: 'M16 2l12 5v8c0 6-5 12-12 15C9 27 4 21 4 15V7z M16 7v17c5-3 7-6 7-10V10z',
   blast: 'M14 12l5-2 1-5 4 1-2 6c5 3 6 8 3 13-3 5-12 6-17 1-4-4-4-12 1-15z M23 3l3-2 2 2-4 3z',
@@ -18,8 +22,6 @@ const marks = {
   drone:
     'M11 13h10l3 4-4 4h-8l-4-4z M3 6l8 5-2 3-8-5z M21 11l8-5 2 3-8 5z M1 24l8-5 2 3-8 5z M21 22l2-3 8 5-2 3z',
   engineer: 'M2 23h28v4H2z M4 21V6h4v6c5 4 11 4 16 0V6h4v15h-4v-5l-4 2v3h-3v-2h-3v2h-3v-3l-3-2v5z',
-  medic: 'M12 4h8v8h8v8h-8v8h-8v-8H4v-8h8z',
-  frost: 'M14 1h4v10l8-5 2 4-9 6 9 6-2 4-8-5v10h-4V21l-8 5-2-4 9-6-9-6 2-4 8 5z',
   fever: 'M15 1c2 8 8 8 7 15 3-1 4-4 4-6 8 16-5 23-12 20C4 28 2 21 7 13c0 4 2 5 3 5-1-7 5-10 5-17z',
 };
 const metal = {

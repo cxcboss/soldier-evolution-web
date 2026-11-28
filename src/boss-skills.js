@@ -128,30 +128,12 @@ export function startSkill(b) {
   return boss.skill;
 }
 function strike(b, cast, mark) {
-  const s = b.stage < 7 ? 2 : 3;
   b.event(cast.kind + 'Strike', mark.x, 0.1, mark.z);
-  b.allies = b.allies.filter((a) => {
-    if (cast.casualties >= s || !inStrike(cast, mark, a.x, a.z, 0.12)) return true;
-    const body = b.fall(a, 'blue', 0.7, mark.x);
-    body.vy = cast.kind === 'engine' ? 3.8 : 2.6;
-    cast.casualties++;
-    return false;
-  });
-  if (cast.damagedCaptain || !inStrike(cast, mark, b.x, b.captainZ, 0.16)) return;
-  cast.damagedCaptain = true;
-  if (b.buffs.shield > 0) {
-    b.event('shieldHit', b.x, 0.6, b.captainZ);
-    return;
+  if (b.damageSquadArea) {
+    const maxHits = b.stage === 3 ? 3 : 2;
+    b.damageSquadArea(mark.x, mark.z, mark.radius + 0.18, maxHits, 'signature', cast.kind);
   }
-  if (cast.kind === 'kestrel') b.chill = 1.6;
-  if (b.hitGuard > 0) return;
-  b.hurt = 1;
-  b.hitGuard = 1.15;
-  b.armor--;
-  if (b.armor <= 0) {
-    b.lossReason = 'signature';
-    b.finish(false);
-  }
+  if (cast.kind === 'kestrel' && inStrike(cast, mark, b.x, b.captainZ, 0.6)) b.chill = 1.6;
 }
 export function advanceSkill(b, dt) {
   const boss = b.boss;

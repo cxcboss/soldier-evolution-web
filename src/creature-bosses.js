@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { coatModel, createSculptedPaint } from './creature-paint.js';
 import { block, part, combine, strut } from './scenery-mesh.js';
+import { slamDownWeight, slamRaiseWeight, smoothRange } from './brawler-motion.js';
 
 const V = (a) => new THREE.Vector3(...a);
 const E = (x = 0, y = 0, z = 0) => new THREE.Euler(x, y, z);
@@ -634,19 +635,33 @@ function crab(r) {
     }
   }
   return (q) => {
-    jaw.rotation.x = 0.07 + 0.12 * Math.sin(q.time * 3.2) + 0.28 * q.cast - 0.18 * q.fire;
-    body.position.y = 1.04 + q.bob * 0.08 - q.down * 0.29;
-    body.rotation.z = q.stride * 0.044 + q.down * 0.18;
-    body.rotation.x = -q.cast * 0.14;
+    const both = q.slamHand === 2;
+    jaw.rotation.x = 0.07 + 0.12 * Math.sin(q.time * 3.2) + 0.28 * q.cast - 0.18 * q.fire + 0.24 * q.raise;
+    body.position.y = 1.04 + q.bob * 0.08 + 0.26 * q.raise - 0.44 * q.strike - q.down * 0.29;
+    body.rotation.z = q.stride * 0.044 + q.down * 0.18 + q.knock * Math.sin(q.time * 26) * 0.14;
+    body.rotation.x = -q.cast * 0.14 - 0.28 * q.raise + 0.36 * q.strike - 0.32 * q.knock;
     legs.forEach(({ g, shank, phase, s }) => {
       const a = q.beat + phase;
       g.rotation.y = s * 0.25 * Math.sin(a) * q.walk;
-      shank.rotation.z = s * (Math.max(0, Math.cos(a)) * 0.28 * q.walk + q.down * 0.45);
+      shank.rotation.z = s * (Math.max(0, Math.cos(a)) * 0.28 * q.walk + q.down * 0.45 + q.knock * 0.25);
     });
     claws.forEach(({ arm, palm, finger, s }) => {
-      arm.rotation.x = -0.14 + 0.2 * q.stride * s - 0.55 * q.cast - 0.58 * q.air + 0.5 * q.down;
-      palm.rotation.y = s * (0.1 - 0.26 * q.cast + 0.26 * q.fire);
-      finger.rotation.y = s * (-0.28 - 0.32 * q.cast + 0.64 * q.fire + 0.09 * Math.sin(q.time * 3));
+      const active = both || (s < 0 ? q.slamHand === 0 : q.slamHand === 1);
+      const r = active ? q.raise : 0;
+      const st = active ? q.strike : 0;
+      // 巨蟹交替高举巨螯过顶、再狠砸地面连击；被击退期双螯失衡朝天甩开
+      arm.rotation.x =
+        -0.14 +
+        0.2 * q.stride * s -
+        0.55 * q.cast -
+        1.65 * r +
+        0.82 * st -
+        0.58 * q.air -
+        0.9 * q.knock +
+        0.5 * q.down;
+      palm.rotation.y = s * (0.1 - 0.26 * q.cast + 0.26 * q.fire - 0.32 * r + 0.38 * st);
+      finger.rotation.y =
+        s * (-0.28 - 0.32 * q.cast + 0.64 * q.fire - 0.45 * r + 0.72 * st + 0.09 * Math.sin(q.time * 3));
     });
   };
 }
@@ -1470,19 +1485,31 @@ function furnace(r) {
     );
   }
   return (q) => {
-    turbine.rotation.y = q.time * 2.8 + q.cast * 1.2 + q.fire * 0.7;
-    body.position.y = 1.14 + 0.066 * q.bob - 0.15 * q.cast - 0.42 * q.down;
-    body.rotation.z = 0.042 * q.stride + 0.21 * q.down;
-    iris.rotation.z = 0.14 * q.time + 0.67 * q.cast;
-    legs.forEach(({ g, shank, s, phase }) => {
+    const both = q.slamHand === 2;
+    turbine.rotation.y = q.time * 2.8 + q.cast * 1.2 + q.fire * 0.7 + q.raise * 3.2;
+    body.position.y = 1.14 + 0.066 * q.bob + 0.34 * q.raise - 0.48 * q.strike - 0.15 * q.cast - 0.42 * q.down;
+    body.rotation.z = 0.042 * q.stride + 0.21 * q.down + q.knock * Math.sin(q.time * 25) * 0.16;
+    body.rotation.x = -0.32 * q.raise + 0.42 * q.strike - 0.34 * q.knock;
+    iris.rotation.z = 0.14 * q.time + 0.67 * q.cast + 1.4 * q.raise;
+    legs.forEach(({ g, shank, s, phase }, idx) => {
       const a = q.beat + phase;
+      const frontPair = idx % 4 === 0;
+      const activeFront = frontPair && (both || (s < 0 ? q.slamHand === 0 : q.slamHand === 1));
       g.rotation.y = s * 0.22 * Math.sin(a) * q.walk;
-      shank.rotation.z = s * (0.25 * Math.max(0, Math.cos(a)) * q.walk + 0.36 * q.down);
+      g.rotation.x = activeFront ? -0.95 * q.raise + 0.52 * q.strike : -0.35 * q.knock;
+      shank.rotation.z =
+        s *
+        (0.25 * Math.max(0, Math.cos(a)) * q.walk +
+          0.36 * q.down +
+          (activeFront ? -0.55 * q.raise + 0.42 * q.strike : 0) +
+          0.25 * q.knock);
     });
     guns.forEach(({ g, s }) => {
-      g.rotation.x = 0.22 + 0.54 * q.cast - 0.34 * q.fire;
-      g.rotation.z = s * (0.18 + 0.12 * q.down);
-      g.position.y = 0.56 - 0.14 * q.fire;
+      const active = both || (s < 0 ? q.slamHand === 0 : q.slamHand === 1);
+      g.rotation.x =
+        0.22 + 0.54 * q.cast - 0.34 * q.fire - (active ? 0.95 * q.raise - 0.78 * q.strike : 0) - 0.5 * q.knock;
+      g.rotation.z = s * (0.18 + 0.12 * q.down + 0.24 * q.knock);
+      g.position.y = 0.56 - 0.14 * q.fire + (active ? 0.18 * q.raise - 0.18 * q.strike : 0);
     });
   };
 }
@@ -1526,7 +1553,11 @@ export function createCreatureBosses(parent, paint) {
     const texture = paint.get(kind);
     const illustrated = pose.mode === 'ai' && texture;
     const beat = pose.march * 4.35;
-    const down = THREE.MathUtils.smoothstep(pose.defeat, 0.12, 0.94);
+    const knock = smoothRange(pose.defeat, 0, 0.08) * (1 - smoothRange(pose.defeat, 0.82, 0.96));
+    const down = THREE.MathUtils.smoothstep(pose.defeat, 0.84, 1.38);
+    const atkW = pose.attack > 0 ? 1 - smoothRange(pose.defeat, 0, 0.15) : 0;
+    const raise = atkW * slamRaiseWeight(pose.attack);
+    const strike = atkW * slamDownWeight(pose.attack);
     if (illustrated) {
       if (!active.portrait) {
         active.portrait = createSculptedPaint(kind, texture);
@@ -1548,19 +1579,24 @@ export function createCreatureBosses(parent, paint) {
       active.paintState = coatModel(active.root, texture, shell, kind);
     if (active.portrait) active.portrait.mesh.visible = false;
     active.root.visible = true;
-    // Maintain the same articulated body through winding approaches, impacts and collapse.
     active.root.scale.setScalar(creatureScale[kind]);
-    if (active.paintState) active.paintState.value = Math.max(0, pose.hit);
+    if (active.paintState) active.paintState.value = Math.max(0, pose.hit, knock * 0.72);
     const air =
       Math.sin(Math.PI * THREE.MathUtils.clamp((pose.vault - 0.21) / 0.89, 0, 1)) +
-      Math.sin(Math.PI * THREE.MathUtils.clamp((pose.attack - 0.23) / 0.65, 0, 1));
+      (pose.slamHand === 2 && pose.attack > 0
+        ? Math.sin(Math.PI * smoothRange(pose.attack, 0.16, 0.62))
+        : 0);
     active.sample({
       time: pose.time,
       beat,
-      walk: pose.walk * (1 - down),
+      walk: pose.walk * (1 - down) * (1 - 0.75 * atkW) + knock * 0.6,
       stride: Math.sin(beat) * pose.walk * (1 - down),
       bob: (0.5 - 0.5 * Math.cos(beat * 2)) * pose.walk,
       down,
+      knock,
+      raise,
+      strike,
+      slamHand: pose.slamHand || 0,
       air,
       cast: pose.charge || 0,
       fire: pose.release || 0,

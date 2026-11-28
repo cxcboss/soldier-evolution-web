@@ -30,7 +30,7 @@ function moldUniform(geometry, side) {
     const crown = region(u, v, shellX, 0.818, captain ? 0.285 : 0.4, 0.19);
     const brim = region(u, v, shellX, 0.726, captain ? 0.33 : 0.425, 0.055);
     const sleeve = region(u, v, 0.18, 0.552, 0.16, 0.135) + region(u, v, 0.82, 0.552, 0.16, 0.135);
-    const boot = region(u, v, 0.33, 0.105, 0.155, 0.135) + region(u, v, 0.64, 0.118, 0.155, 0.13);
+    const boot = region(u, v, 0.29, 0.105, 0.135, 0.135) + region(u, v, 0.69, 0.118, 0.135, 0.13);
     const waist = region(u, v, 0.285, 0.34, 0.115, 0.076) + region(u, v, 0.69, 0.35, 0.11, 0.078);
     const strap =
       (1 - smooth(Math.abs(u - (0.82 - 0.93 * v)), 0.024, 0.075)) *
@@ -104,22 +104,22 @@ export function createInfantryModel(side, portrait, reverse, stride, capacity) {
       void main() {
         tex = uv; cap = surface; flash = stepPose.x;
         float lateral = uv.x - 0.5;
-        float isRight = smoothstep(-0.04, 0.04, lateral);
+        // 锐化左右腿分界并保持微外展站距，消除行走时双脚像粘连在一起的观感
+        float isRight = smoothstep(-0.014, 0.014, lateral);
         float stride = mix(stepPose.z, stepPose.y, isRight);
         float lift = max(0., (isRight * 2. - 1.) * stepPose.w);
-        float leg = 1. - smoothstep(0.15, 0.43, uv.y);
+        float leg = 1. - smoothstep(0.16, 0.42, uv.y);
         float arm = smoothstep(0.14, 0.33, abs(lateral))
                   * smoothstep(0.27, 0.41, uv.y) * (1.-smoothstep(0.47, 0.64, uv.y));
         vec3 p = position;
-        // Boots bend at the ankle; the shoulders counter-rotate over planted hips.
         float heel = leg * (1. - smoothstep(.085,.20,uv.y));
         float chest = smoothstep(.28,.48,uv.y) * (1.-smoothstep(.58,.72,uv.y));
-        p.x += (isRight-.5) * .026 * lift * heel + .017 * stepPose.y * chest;
-        p.z += .046 * facing * stepPose.y * lateral * chest;
-        p.y += heel * max(.0, -stride) * .024;
+        p.x += (isRight - .5) * (.046 * leg + .026 * lift * heel) + .016 * stepPose.y * chest;
+        p.z += .042 * facing * stepPose.y * lateral * chest;
+        p.y += heel * max(.0, -stride) * .022;
         p.z += facing * stride * (${footReach} * leg - 0.105 * arm);
-        p.y += 0.104 * lift * leg + 0.019 * abs(stepPose.w) * (1. - leg) + stride * arm * 0.038;
-        p.x += 0.014 * stepPose.y * uv.y + arm * stride * 0.018;
+        p.y += 0.112 * lift * leg + 0.018 * abs(stepPose.w) * (1. - leg) + stride * arm * 0.038;
+        p.x += 0.012 * stepPose.y * chest + arm * stride * 0.016;
         #ifdef CAPTAIN
           float shoulder = smoothstep(.53, .73, tex.x) * smoothstep(.41, .61, tex.y);
           p.x += .079 + lean * tex.y * .14 + shoulder * recoil * .026;

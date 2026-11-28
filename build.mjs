@@ -5,7 +5,7 @@ import path from 'node:path';
 
 const serve = process.argv.includes('--serve');
 
-// 仅拷贝运行时真正需要的美术资产，排除 20MB 未引用的预览视频与历史废图
+// 仅拷贝 3 关精品版运行时真正需要的美术资产，保持 dist 轻量快速加载
 const RUNTIME_ART = new Set([
   'ally-field.webp',
   'captain-field.webp',
@@ -14,10 +14,7 @@ const RUNTIME_ART = new Set([
   'convoy-keyart.webp',
   'expedition-chart.webp',
   'diver-skin.webp',
-  'drill-skin.webp',
   'engine-skin.webp',
-  'kestrel-skin.webp',
-  'warden-skin.webp',
 ]);
 
 await mkdir('dist/art', { recursive: true });

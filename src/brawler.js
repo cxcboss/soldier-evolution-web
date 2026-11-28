@@ -3,7 +3,13 @@ import { sampleFeet, stanceFraction } from './infantry-walk.js';
 import { creaturePaint } from './creature-paint.js';
 import { createCreatureBosses } from './creature-bosses.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { jumpProgress, smoothRange, takeoff, touchdown, attackDuration } from './brawler-motion.js';
+import {
+  slamCycle,
+  slamDownWeight,
+  slamRaiseWeight,
+  slamStrike,
+  smoothRange,
+} from './brawler-motion.js';
 
 export function loadBrawler() {
   const root = new THREE.Group();
@@ -88,6 +94,7 @@ export function loadBrawler() {
     walk,
     march,
     attack,
+    slamHand = 0,
     hit,
     defeat,
     kind = 'bruiser',
@@ -103,6 +110,7 @@ export function loadBrawler() {
       walk,
       march,
       attack,
+      slamHand,
       defeat,
       vault,
       charge,
@@ -117,63 +125,74 @@ export function loadBrawler() {
     const bound = Math.sin(Math.PI * Math.max(0, Math.min(1, (vault - 0.21) / 0.89)));
     const gather = smoothRange(vault, 0, 0.14) * (1 - smoothRange(vault, 0.14, 0.32));
     const absorb = smoothRange(vault, 1.04, 1.13) * (1 - smoothRange(vault, 1.14, 1.35));
-    const attackWeight = 1 - smoothRange(defeat, 0, 0.38);
-    const prep =
-      attackWeight * smoothRange(attack, 0, 0.19) * (1 - smoothRange(attack, 0.2, takeoff + 0.1));
-    const air = attackWeight * Math.sin(Math.PI * jumpProgress(attack));
-    const raised =
-      attackWeight * smoothRange(attack, 0.11, 0.53) * (1 - smoothRange(attack, 0.68, touchdown));
-    const strike =
-      attackWeight *
-      smoothRange(attack, 0.68, touchdown) *
-      (1 - smoothRange(attack, 1.01, attackDuration));
-    const settle =
-      attackWeight * smoothRange(attack, touchdown, 1.0) * (1 - smoothRange(attack, 1.01, 1.39));
-    const down = smoothRange(defeat, 0.12, 0.58);
-    const relax = smoothRange(defeat, 0.82, 1.34);
+
+    // 高举手臂连砸地面动作权重
+    const attackWeight = attack > 0 ? 1 - smoothRange(defeat, 0, 0.15) : 0;
+    const raise = attackWeight * slamRaiseWeight(attack);
+    const strike = attackWeight * slamDownWeight(attack);
+    const bothHands = slamHand === 2;
+    const air =
+      bothHands && attack > 0
+        ? attackWeight * Math.sin(Math.PI * smoothRange(attack, 0.16, slamStrike))
+        : 0;
+
+    // 击杀两阶段：0~0.85s 子弹密集击退踉跄后仰抽搐 -> 0.85~1.38s 彻底失衡向后仰面倒地
+    const knock = smoothRange(defeat, 0, 0.08) * (1 - smoothRange(defeat, 0.82, 0.96));
+    const knockPulse = knock * Math.abs(Math.sin(defeat * 28));
+    const fall = smoothRange(defeat, 0.84, 1.38);
+    const relax = smoothRange(defeat, 1.38, 1.85);
+
     const gait =
-      walk *
-      (1 - smoothRange(attack, 0.015, 0.16) + smoothRange(attack, 1.32, attackDuration)) *
-      (1 - down) *
-      (1 - 0.9 * Math.sin(Math.PI * vaultT));
+      (walk *
+        (1 - 0.82 * attackWeight) *
+        (1 - fall) *
+        (1 - 0.9 * Math.sin(Math.PI * vaultT))) +
+      knock * 0.85;
     const reach = 0.41;
     const beat = march == null ? time * 6.75 : (march * Math.PI * stanceFraction) / reach;
-    sampleFeet(beat, gait, feet);
+    sampleFeet(beat, Math.min(1, gait), feet);
     const stride = feet[0];
+    const handTwist = slamHand === 0 ? 1 : slamHand === 1 ? -1 : 0;
+
     pelvis.position.y =
       hipsY +
-      (-0.105 + (0.5 - 0.5 * Math.cos(2 * beat)) * 0.047) * gait -
-      0.3 * prep -
-      0.48 * settle -
-      0.17 * down -
+      (-0.105 + (0.5 - 0.5 * Math.cos(2 * beat)) * 0.047) * Math.min(1, gait) +
+      0.14 * raise -
+      0.56 * strike -
+      0.16 * knockPulse -
+      0.18 * fall -
       0.32 * gather -
       0.26 * absorb;
-    pelvis.rotation.set(0.055 * prep - 0.075 * air, stride * 0.105, stride * 0.043 - down * 0.075);
+    pelvis.rotation.set(
+      -0.1 * raise + 0.14 * strike - 0.12 * air - 0.14 * knock,
+      stride * 0.105 + handTwist * (0.28 * raise - 0.34 * strike),
+      stride * 0.043 - fall * 0.08 + knock * Math.sin(defeat * 22) * 0.12,
+    );
     spine.rotation.set(
       0.06 +
         0.24 * gather +
         0.19 * absorb -
         0.14 * bound +
-        0.13 * drive +
-        0.24 * prep -
-        0.18 * raised +
-        0.42 * strike -
-        0.084 * hit,
-      -stride * 0.16,
-      -0.057 * stride - 0.16 * down,
+        0.13 * drive -
+        0.34 * raise +
+        0.72 * strike -
+        0.09 * hit -
+        0.38 * knock -
+        0.22 * knockPulse -
+        0.18 * fall,
+      -stride * 0.16 + handTwist * (0.42 * raise - 0.48 * strike),
+      -0.057 * stride - 0.15 * fall + knock * Math.sin(defeat * 19) * 0.14,
     );
     if (kind === 'bruiser') spine.rotation.x += 0.16 * charge + 0.31 * release;
     head.rotation.set(
-      -0.29 - 0.12 * prep + 0.07 * raised - 0.34 * strike + 0.21 * down,
-      stride * 0.052,
-      0.032 * stride,
+      -0.25 + 0.18 * raise - 0.42 * strike - 0.35 * knock + 0.24 * fall,
+      stride * 0.052 - handTwist * 0.18 * raise,
+      0.032 * stride + knock * Math.sin(defeat * 26) * 0.16,
     );
     for (const [i, limb] of limbs.entries()) {
       const side = i ? 1 : -1;
       const swing = feet[i];
       const lift = Math.max(0, (i === 0 ? 1 : -1) * feet[2]);
-      // Solve the two leg angles to keep the supporting boot on the road while
-      // the other clears it. The painted pose alone has one foot in front.
       const thigh = -limb.Knee.position.y;
       const shin = -limb.Ankle.position.y;
       const downToAnkle = thigh + shin + pelvis.position.y - hipsY - lift * 0.22;
@@ -187,37 +206,63 @@ export function loadBrawler() {
         Math.PI -
         safeAcos((thigh * thigh + shin * shin - legLength * legLength) / (2 * thigh * shin));
       limb.Hip.rotation.x =
-        hipAngle - (0.62 + i * 0.13) * bound - (0.6 + i * 0.11) * air + side * 0.27 * down;
-      limb.Knee.rotation.x = kneeAngle + 0.78 * bound + 0.22 * absorb + 0.86 * air + 0.22 * down;
+        hipAngle -
+        (0.62 + i * 0.13) * bound -
+        (0.58 + i * 0.1) * air +
+        0.22 * strike +
+        side * 0.28 * fall;
+      limb.Knee.rotation.x =
+        kneeAngle + 0.78 * bound + 0.22 * absorb + 0.82 * air + 0.32 * strike + 0.24 * fall;
       limb.Ankle.rotation.x = -hipAngle - kneeAngle + 0.19 * swing - 0.31 * air;
+
+      // 判断当前手臂是否是本记砸地的主力臂（左砸=0 / 右砸=1 / 双拳爆裂重砸=2）
+      const activeArm = bothHands || slamHand === i;
+      const armRaise = activeArm ? raise : 0;
+      const armStrike = activeArm ? strike : 0;
+      const counterArm = !activeArm && attackWeight > 0 ? raise : 0;
+
       limb.Arm.rotation.set(
         0.37 * swing -
           0.76 * bound +
           0.18 * gather -
           (i ? 0 : 0.82) * brace -
           (i ? 0.65 : 0) * drive -
-          0.24 * prep -
-          (2.04 + i * 0.09) * raised -
-          0.38 * strike,
-        side * (0.23 * raised + 0.1 * strike + 0.22 * bound),
-        side * (0.035 + 0.12 * prep + 0.28 * raised + 0.055 * strike + 0.69 * down - 0.26 * relax),
+          (bothHands ? 2.68 : 2.58) * armRaise -
+          0.88 * armStrike +
+          0.42 * counterArm -
+          0.88 * knock -
+          0.45 * knockPulse,
+        side * (0.28 * armRaise - 0.16 * armStrike + 0.22 * bound + 0.42 * knock),
+        side *
+          (0.05 +
+            0.34 * armRaise -
+            0.12 * armStrike +
+            0.25 * counterArm +
+            0.78 * knock +
+            0.68 * fall -
+            0.24 * relax),
       );
       limb.Elbow.rotation.x =
         -0.26 -
         0.17 * Math.max(0, -swing) -
-        0.4 * prep -
-        0.65 * raised +
-        0.12 * strike -
-        0.4 * down;
+        0.58 * armRaise -
+        0.14 * armStrike -
+        0.48 * knock -
+        0.38 * fall;
       limb.Arm.rotation.x -= 1.36 * charge + 0.11 * release;
       limb.Elbow.rotation.x -= 0.34 * charge;
       limb.Wrist.rotation.set(
-        -0.24 - 0.13 * raised + 0.22 * strike,
-        side * 0.58 * raised,
-        side * (0.075 * swing + 0.11 * raised),
+        -0.24 - 0.15 * armRaise + 0.28 * armStrike,
+        side * 0.52 * armRaise,
+        side * (0.075 * swing + 0.12 * armRaise),
       );
     }
-    material.emissive.setRGB(0.24 + hit * 0.52, 0.24 + hit * 0.3, 0.24 + hit * 0.16);
+    const glowBoost = Math.max(hit, knockPulse * 0.85);
+    material.emissive.setRGB(
+      0.24 + glowBoost * 0.62,
+      0.24 + glowBoost * 0.32,
+      0.24 + glowBoost * 0.18,
+    );
   }
   return { root, pose, prepare };
 }

@@ -1,8 +1,9 @@
-import { Battle, EVOLUTION_TIERS } from './battle.js';
+import { Battle } from './battle.js';
 import { supplies, lastStage } from './supplies.js';
-import { campaign, chapters } from './campaign.js';
+import { campaign } from './campaign.js';
 import { bosses } from './boss-skills.js';
 import { creatureCrowns } from './creature-bosses.js';
+import { squadSummary } from './units.js';
 import { makeView } from './view.js';
 import { createAudio } from './audio.js';
 import {
@@ -24,22 +25,22 @@ const dlg = $('veil'),
   bossBar = $('bossbar'),
   bossHud = $('bossHud'),
   bossAlert = $('bossAlert'),
-  evoBadge = $('evoBadge'),
+  squadRoster = $('squadRoster'),
   comboBox = $('comboBox'),
   overdriveBtn = $('overdriveBtn'),
   screenFx = $('screenFx'),
   tip = $('tip');
 
-const artNames = { hybrid: '混合', ai: 'AI 贴图', '3d': '纯 3D' };
+const artNames = { hybrid: '混合', ai: '原画', '3d': '纯 3D' };
 const artDescriptions = {
-  hybrid: '队长和 Boss 使用 3D，红蓝小兵使用动态原画。',
-  ai: '使用原画角色和动态贴图。',
-  '3d': '所有角色都使用 3D 模型，可看清跑动、炮身后坐和双拳砸地。',
+  hybrid: '合成重炮队长、钢铁指挥官与 Boss 全部 3D 精雕，士兵叠加 3D 专属装备与原画质感。',
+  ai: '所有兵种使用动态原画与流光特效。',
+  '3d': '全员纯 3D 模型，可近距离检视分明步态、3D 兵种装备、高举连砸与击退倒地。',
 };
 const coarse = matchMedia('(pointer:coarse)').matches;
 $('instruction').textContent = coarse
-  ? '左右拖动 · 下拉后撤 · 满能点超载齐射'
-  : 'WASD / 方向键移动 · 空格或 E 键超载齐射';
+  ? '左右拖动 · 吃金门合兵进阶 · 满能点超载齐射'
+  : 'WASD / 方向键移动 · 吃金门合兵进阶 · 空格/E 键超载';
 
 function read(key) {
   try {
@@ -82,16 +83,16 @@ let accumulator = 0,
   resultEvaluated = false,
   activePointer = null;
 
-// 缓存视口与 HUD 布局尺寸，杜绝 60fps 每帧读写 offsetTop/clientWidth 造成的强制回流
+// 缓存视口与 HUD 布局尺寸，避免 60fps 每帧读写 DOM 触发回流
 let cachedStageW = 390;
 let cachedStageH = 844;
-let cachedHudTop = 64;
+let cachedHudTop = 66;
 
 function updateLayoutMetrics() {
   cachedStageW = stage.clientWidth || 390;
   cachedStageH = stage.clientHeight || 844;
   const toolbar = $('level')?.closest('.hud');
-  cachedHudTop = toolbar ? toolbar.offsetTop + toolbar.offsetHeight + 22 : 64;
+  cachedHudTop = toolbar ? toolbar.offsetTop + toolbar.offsetHeight + 22 : 66;
 }
 
 const keys = new Set(),
@@ -126,9 +127,9 @@ function spawnPopup(item) {
   slot.x = p.x;
   slot.y = p.y;
   slot.age = 0;
-  slot.life = item.kind === 'evolve' ? 1.15 : item.kind === 'crit' ? 0.78 : 0.62;
+  slot.life = item.kind === 'evolve' ? 1.25 : item.kind === 'crit' ? 0.8 : 0.64;
   slot.vx = (Math.random() - 0.5) * 26;
-  slot.vy = item.kind === 'evolve' ? -52 : -64;
+  slot.vy = item.kind === 'evolve' ? -54 : -64;
   slot.el.dataset.kind = item.kind || 'rocket';
   slot.el.textContent = item.text;
   slot.el.hidden = false;
@@ -150,7 +151,7 @@ function updatePopups(dt) {
     slot.x += slot.vx * dt;
     slot.y += slot.vy * dt;
     slot.vy *= Math.exp(-3.6 * dt);
-    const scale = t < 0.16 ? 1.25 - t : 1.0 - t * 0.16;
+    const scale = t < 0.16 ? 1.26 - t : 1.0 - t * 0.16;
     const alpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
     slot.el.style.opacity = alpha.toFixed(2);
     slot.el.style.transform = `translate3d(${slot.x.toFixed(1)}px,${slot.y.toFixed(1)}px,0) translate(-50%,-50%) scale(${scale.toFixed(2)})`;
@@ -167,9 +168,14 @@ function clearPopups() {
 const battle = new Battle((e) => {
   if (e.kind !== 'smallShot' && e.kind !== 'loss') view?.feedback(e);
   audio.play(e.kind, e.strength, e.supply);
-  // 关键高光瞬间注入极短暂微顿帧，强化打击重量感
-  if (e.kind === 'overdrive' || e.kind === 'bossBurst' || e.kind === 'finisher') {
-    hitstop = Math.max(hitstop, 0.048);
+  // 关键高光瞬间注入极短暂顿帧，凸显爆破与合兵重量感
+  if (
+    e.kind === 'overdrive' ||
+    e.kind === 'bossBurst' ||
+    e.kind === 'finisher' ||
+    e.kind === 'barrelBlast'
+  ) {
+    hitstop = Math.max(hitstop, 0.045);
   } else if (e.kind === 'wallBreak' || e.kind === 'evolve' || e.kind === 'bossEnrage') {
     hitstop = Math.max(hitstop, 0.032);
   }
@@ -180,66 +186,101 @@ if (Number.isInteger(requestedStage) && requestedStage >= 1 && requestedStage <=
   battle.reset(requestedStage);
 battle.applyBonuses(computeBonuses(progress));
 
-function missionLabel(route) {
-  return route.chapter.name + (route.number === 10 ? ' · 高难' : '');
+// === 构建首页三关直选战术卡片 + 战役弹窗卡片 ===
+const homeStageButtons = new Map();
+const modalStageStarEls = new Map();
+const homeStageStarEls = new Map();
+
+for (const route of campaign) {
+  // 1. 首页横向三关直选卡
+  const card = document.createElement('button');
+  card.className = 'stage-card';
+  card.type = 'button';
+  card.role = 'radio';
+  card.dataset.level = String(route.number);
+  card.dataset.theme = route.theme;
+  const head = document.createElement('div');
+  head.className = 'stage-card-head';
+  const num = document.createElement('span');
+  num.className = 'stage-card-num';
+  num.textContent = String(route.number).padStart(2, '0');
+  const starsEl = document.createElement('span');
+  starsEl.className = 'stage-card-stars';
+  homeStageStarEls.set(route.number, starsEl);
+  head.append(num, starsEl);
+  const title = document.createElement('strong');
+  title.className = 'stage-card-title';
+  title.textContent = route.chapter.name;
+  const sub = document.createElement('span');
+  sub.className = 'stage-card-sub';
+  sub.textContent = route.badge;
+  card.append(head, title, sub);
+  card.addEventListener('click', () => selectHomeStage(route.number));
+  $('homeStages').append(card);
+  homeStageButtons.set(route.number, card);
+
+  // 2. 战役弹窗大幅关卡卡片
+  const modalCard = document.createElement('button');
+  modalCard.className = 'campaign-card';
+  modalCard.dataset.level = String(route.number);
+  modalCard.dataset.theme = route.theme;
+  const mNum = document.createElement('b');
+  mNum.className = 'campaign-num';
+  mNum.textContent = String(route.number).padStart(2, '0');
+  const info = document.createElement('div');
+  info.className = 'campaign-info';
+  const mHead = document.createElement('header');
+  const mChap = document.createElement('small');
+  mChap.textContent = `${route.chapter.name} · ${route.badge}`;
+  const mStars = document.createElement('span');
+  mStars.className = 'stage-stars';
+  modalStageStarEls.set(route.number, mStars);
+  mHead.append(mChap, mStars);
+  const mTitle = document.createElement('h3');
+  mTitle.textContent = route.name;
+  const mDesc = document.createElement('p');
+  mDesc.textContent = route.tagline;
+  info.append(mHead, mTitle, mDesc);
+  modalCard.append(mNum, info);
+  modalCard.addEventListener('click', () => restart(route.number));
+  $('stageList').append(modalCard);
+}
+
+function selectHomeStage(level) {
+  if (battle.phase !== 'ready') {
+    restart(level);
+    return;
+  }
+  battle.reset(level);
+  battle.applyBonuses(computeBonuses(progress));
+  refreshHomeMeta();
+  view?.reset(battle.x);
+  view?.prepareBoss(battle.boss.kind).then(() => {
+    needsPaint = true;
+  });
+  needsPaint = true;
+  const address = new URL(location.href);
+  address.searchParams.set('stage', battle.stage);
+  history.replaceState(null, '', address);
 }
 
 function refreshHomeMeta() {
-  $('missionNumber').textContent = String(battle.stage).padStart(2, '0');
-  $('missionChapter').textContent = missionLabel(battle.route);
+  $('missionBadge').textContent = battle.route.badge || '精品关卡';
   $('missionName').textContent = battle.route.name;
+  $('missionTagline').textContent = battle.route.tagline || '';
   $('homeStars').textContent = `${totalStars(progress)} / ${lastStage * 3}`;
   $('homeCoins').textContent = String(progress.coins);
-}
-
-// 构建 30 关战役地图并挂载星标节点
-const stageStarEls = new Map();
-for (const chapter of chapters) {
-  const group = document.createElement('section');
-  group.className = 'chapter';
-  group.dataset.theme = chapter.theme;
-  const heading = document.createElement('header');
-  heading.className = 'chapter-heading';
-  const title = document.createElement('h3');
-  title.textContent = chapter.name;
-  const span = document.createElement('span');
-  span.textContent =
-    String(chapter.first).padStart(2, '0') + ' — ' + String(chapter.last).padStart(2, '0');
-  heading.append(title, span);
-  const stops = document.createElement('div');
-  stops.className = 'chapter-stages';
-  for (const route of campaign.slice(chapter.first - 1, chapter.last)) {
-    const button = document.createElement('button');
-    const number = document.createElement('b');
-    number.textContent = String(route.number).padStart(2, '0');
-    const starsEl = document.createElement('span');
-    starsEl.className = 'stage-stars';
-    stageStarEls.set(route.number, starsEl);
-    const name = document.createElement('span');
-    name.className = 'stop-name';
-    name.textContent = route.name;
-    button.dataset.level = route.number;
-    button.setAttribute('aria-label', '第 ' + route.number + ' 关 ' + route.name);
-    button.append(number, starsEl, name);
-    if (route.number === 10) {
-      const badge = document.createElement('small');
-      badge.className = 'siege-label';
-      badge.textContent = '高难';
-      button.append(badge);
-      button.dataset.hard = '';
-      button.setAttribute('aria-label', '第 10 关 ' + route.name + ' 高难');
-    }
-    button.addEventListener('click', () => restart(route.number));
-    stops.append(button);
+  for (const [num, btn] of homeStageButtons.entries()) {
+    btn.setAttribute('aria-checked', String(num === battle.stage));
   }
-  group.append(heading, stops);
-  $('stageList').append(group);
 }
 
 function refreshStageStars() {
-  for (const [num, el] of stageStarEls.entries()) {
-    const s = progress.stars[String(num)] || 0;
-    el.textContent = s ? '★'.repeat(s) + '☆'.repeat(3 - s) : '';
+  for (const route of campaign) {
+    const s = progress.stars[String(route.number)] || 0;
+    const text = '★'.repeat(s) + '☆'.repeat(3 - s);
+    homeStageStarEls.get(route.number).textContent = text;
+    modalStageStarEls.get(route.number).textContent = text;
   }
 }
 refreshStageStars();
@@ -277,7 +318,6 @@ function renderArmory() {
       audio.play('buy', 1);
       renderArmory();
       refreshHomeMeta();
-      // 若尚在开局准备页，实时把新升级刷新到预览战场中
       if (battle.phase === 'ready') {
         battle.reset(battle.stage);
         battle.applyBonuses(computeBonuses(progress));
@@ -288,16 +328,6 @@ function renderArmory() {
     list.append(row);
   }
 }
-
-$('stageList').addEventListener('keydown', (e) => {
-  const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -5, ArrowDown: 5 };
-  if (!Object.prototype.hasOwnProperty.call(steps, e.code) || !e.target.dataset.level) return;
-  const next = Math.min(lastStage, Math.max(1, +e.target.dataset.level + steps[e.code]));
-  e.preventDefault();
-  $('stageList')
-    .querySelector('[data-level="' + next + '"]')
-    .focus();
-});
 
 function release() {
   keys.clear();
@@ -352,6 +382,7 @@ function restart(level = battle.stage) {
   lastHint = 0;
   resultEvaluated = false;
   lastBuffSig = '';
+  lastRosterSig = '';
   const address = new URL(location.href);
   address.searchParams.set('stage', battle.stage);
   history.replaceState(null, '', address);
@@ -380,10 +411,10 @@ function showPanel(which) {
   $('dialogIcon').setAttribute('href', '#i-' + (panelIcons[panelKind] || 'flag'));
   $('dialogChapter').textContent =
     which === 'levels'
-      ? `港区远征 · 已收集 ${totalStars(progress)} / ${lastStage * 3} ★`
+      ? `三关精品远征 · 已收集 ${totalStars(progress)} / ${lastStage * 3} ★`
       : which === 'armory'
         ? '军团永久强化'
-        : missionLabel(battle.route);
+        : `第 ${battle.stage} 关 · ${battle.route.chapter.name}`;
   $('resultStats').hidden = which !== 'result';
   $('resultStars').hidden = which !== 'result';
   $('armoryPanel').hidden = which !== 'armory';
@@ -397,8 +428,8 @@ function showPanel(which) {
   if (which === 'levels') {
     audio.pause();
     refreshStageStars();
-    $('dialogTitle').textContent = '战役地图';
-    $('detail').textContent = '';
+    $('dialogTitle').textContent = '选择关卡';
+    $('detail').textContent = '三关各有独立机关、地形与 Boss 演出，点选立刻开战。';
     $('continue').textContent = '返回';
     for (const button of $('stageList').querySelectorAll('[data-level]'))
       button.setAttribute('aria-current', String(+button.dataset.level === battle.stage));
@@ -407,7 +438,7 @@ function showPanel(which) {
     audio.pause();
     renderArmory();
     $('dialogTitle').textContent = '军械整备';
-    $('detail').textContent = '消耗远征军饷永久强化小队初始战力，对全部 30 关生效。';
+    $('detail').textContent = '消耗远征军饷永久强化小队初始战力与增援规模。';
     $('continue').textContent = '完成整备';
   }
   if (which === 'art') {
@@ -419,17 +450,15 @@ function showPanel(which) {
   }
   if (which === 'pause') {
     audio.pause();
-    $('dialogTitle').textContent = '已暂停';
-    $('detail').textContent = '第 ' + battle.stage + ' 关 · ' + battle.route.name;
-    $('continue').textContent = '继续游戏';
+    $('dialogTitle').textContent = '战术暂停';
+    $('detail').textContent = battle.route.name + ' · ' + battle.route.tagline;
+    $('continue').textContent = '继续战斗';
   }
   if (which === 'result') {
     const win = battle.phase === 'won';
-    const seconds = Math.floor(battle.elapsed);
     $('resultKills').textContent = battle.score;
+    $('resultMerges').textContent = battle.mergeCount;
     $('resultCombo').textContent = battle.maxCombo;
-    $('resultTime').textContent =
-      Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
     if (!resultEvaluated) {
       resultEvaluated = true;
       const summary = evaluateRun(progress, battle, win);
@@ -441,43 +470,44 @@ function showPanel(which) {
         stars[i].classList.toggle('lit', i < summary.stars);
       }
       $('resultReward').textContent =
-        `+${summary.reward} 军饷` + (summary.firstStarBonus ? ' (含首星奖励)' : '');
+        `+${summary.reward} 军饷` + (summary.firstStarBonus ? ' (首星翻倍)' : '');
     }
     if (win) {
       $('dialogTitle').textContent =
-        battle.stage === lastStage ? '全部通关' : `第 ${battle.stage} 关通过`;
+        battle.stage === lastStage ? '三关全制霸!' : `第 ${battle.stage} 关制胜!`;
       $('detail').textContent =
         battle.stage < lastStage
-          ? '下一站 · ' + campaign[battle.stage].name
-          : '小队已完成全部航线，可继续冲刺全三星！';
+          ? `下一战：${campaign[battle.stage].chapter.name} · ${campaign[battle.stage].name}`
+          : '三关精品战役全部通关！可继续冲刺全 9 星与钢铁指挥官！';
     } else {
       const losses = {
         signature: [
-          '队长出局',
-          bosses[battle.boss.kind].name + '的' + bosses[battle.boss.kind].skill + '命中了队长。',
+          '全军覆没',
+          bosses[battle.boss.kind].name + '的' + bosses[battle.boss.kind].skill + '击溃了阵列。',
         ],
-        bossShot: ['队长出局', '队长被 Boss 的弹幕击倒。'],
-        gap: ['队长坠桥', '遇到缺口时，提前换道，或带上架桥补给。'],
-        infantry: ['小队全灭', '红兵已越过防线。'],
-        skyfall: ['队长出局', '队长被落下的重物击中。'],
-        wall: ['队长出局', '队长被硬墙推出了跑道。'],
-        breach: ['防线失守', 'Boss 突破了防线。'],
-        slam: ['队长出局', '队长被 Boss 的落地冲击击倒。'],
+        bossShot: ['全军覆没', '队伍被首领弹幕压垮。'],
+        gap: ['坠入断桥', '遇到断桥缺口提前换道避开。'],
+        infantry: ['防线告破', '红兵冲锋消耗光了护卫与核心大兵。'],
+        skyfall: ['陨石砸毁', '注意红圈预警，提前走位闪避陨石！'],
+        lava: ['熔岩吞噬', '熔岩裂口蓄力变亮时及时切道避开！'],
+        roller: ['滚木碾压', '左右闪避滚木，或集火轰碎它获取 +3 援兵！'],
+        wall: ['推下桥面', '被装甲硬墙推到了跑道边缘。'],
+        breach: ['防线失守', 'Boss 突破了桥面防线。'],
+        slam: ['重拳砸溃', 'Boss 连续举手砸地时注意避开地面红圈！'],
       };
       const fallback =
         battle.boss.active && !battle.boss.defeated
-          ? `Boss 还剩 ${Math.ceil(battle.boss.hp)} / ${battle.boss.maxHp} 生命`
-          : '红兵突破了队伍。';
-      const [title, detail] = losses[battle.lossReason] || ['小队全灭', fallback];
+          ? `首领剩余 ${Math.ceil(battle.boss.hp)} / ${battle.boss.maxHp} 生命`
+          : '小队阵亡，多吃金门合成大兵再战！';
+      const [title, detail] = losses[battle.lossReason] || ['战斗失利', fallback];
       $('dialogTitle').textContent = title;
       $('detail').textContent = detail;
     }
-    $('continue').textContent = win && battle.stage < lastStage ? '下一关' : '再玩一次';
+    $('continue').textContent = win && battle.stage < lastStage ? '征战下一关' : '再次挑战';
   }
   if (which === 'levels') {
     const current = $('stageList').querySelector('[aria-current=true]');
-    current.focus({ preventScroll: true });
-    current.scrollIntoView({ block: 'nearest' });
+    current?.focus({ preventScroll: true });
   } else $('continue').focus({ preventScroll: true });
 }
 
@@ -642,7 +672,7 @@ let lastCount = -1,
   lastHP = -1,
   lastMaxHP = -1,
   lastBarWidth = -1,
-  lastTier = -1,
+  lastRosterSig = '',
   lastCombo = -1,
   lastOdPct = -1,
   lastOdState = '',
@@ -663,21 +693,21 @@ function updateStat(id, current, previous) {
   for (const animation of value.getAnimations()) animation.cancel();
   value.animate(
     [
-      { transform: 'scale(1.2)', color: current > previous ? '#ffe097' : '#ffa488' },
-      { transform: 'scale(1)', color: '#fff9e9' },
+      { transform: 'scale(1.22)', color: current > previous ? '#ffe366' : '#ff937d' },
+      { transform: 'scale(1)', color: '#ffffff' },
     ],
     { duration: 220, easing: 'ease-out' },
   );
 }
 
 function hud() {
-  // 消费战斗逻辑推送的 3D 飘字
   if (battle.popups.length) {
     for (let i = 0; i < battle.popups.length; i++) spawnPopup(battle.popups[i]);
     battle.popups.length = 0;
   }
 
-  const n = battle.allies.length,
+  const sum = squadSummary(battle.squad);
+  const n = sum.total,
     power = battle.cannonDamage;
   const level = $('level');
   const levelText = '第 ' + battle.stage + ' 关';
@@ -688,39 +718,44 @@ function hud() {
     $('progress').setAttribute('aria-valuenow', String(prog));
     lastProgress = prog;
   }
-  level.title = battle.route.name + ' · 选择关卡';
+  level.title = battle.route.name + ' · 切换关卡';
 
-  // 更新军团进化阶梯徽章（Boss 血条未占据顶中或常驻左上角下沿）
   const showPlayHud = battle.playing;
-  evoBadge.hidden = !showPlayHud;
-  if (showPlayHud) {
-    const tier = battle.tier || 1;
-    const def = EVOLUTION_TIERS[tier - 1];
-    const nextDef = EVOLUTION_TIERS[tier];
-    const fill = nextDef
-      ? Math.max(0, Math.min(1, (battle.evoPoints - def.need) / (nextDef.need - def.need)))
-      : 1;
-    if (tier !== lastTier) {
-      evoBadge.dataset.tier = String(tier);
-      $('evoLevel').textContent = `Lv.${tier}`;
-      $('evoName').textContent = def.name;
-      lastTier = tier;
-      if (!reducedMotion.matches && evoBadge.animate) {
-        evoBadge.animate(
-          [{ transform: 'scale(1.2)' }, { transform: 'scale(1)' }],
-          { duration: 300, easing: 'ease-out' },
+  const b = battle.boss;
+  const bossVisible = b.active && !b.defeated && view.project(b.x, 0, b.z).y >= 4;
+
+  // 实时兵种编成胶囊条（Boss 血条占顶中时让位避免重叠）
+  squadRoster.hidden = !showPlayHud || bossVisible;
+  if (showPlayHud && !bossVisible) {
+    const topTier = battle.highestUnitTier;
+    const sig = `${topTier}:${sum.t1}:${sum.t2}:${sum.t3}:${sum.t4}`;
+    if (sig !== lastRosterSig) {
+      const upgraded = lastRosterSig && topTier > Number(lastRosterSig.split(':')[0]);
+      lastRosterSig = sig;
+      squadRoster.dataset.tier = String(topTier);
+      $('evoLevel').textContent = `T${topTier}`;
+      $('rosterT1').textContent = String(sum.t1);
+      $('chipT2').hidden = sum.t2 === 0;
+      $('rosterT2').textContent = String(sum.t2);
+      $('chipT3').hidden = sum.t3 === 0;
+      $('rosterT3').textContent = String(sum.t3);
+      $('chipT4').hidden = sum.t4 === 0;
+      $('rosterT4').textContent = String(sum.t4);
+      if (upgraded && !reducedMotion.matches && squadRoster.animate) {
+        squadRoster.animate(
+          [{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }],
+          { duration: 280, easing: 'ease-out' },
         );
       }
     }
-    $('evoFill').style.transform = `scaleX(${fill.toFixed(3)})`;
   }
 
-  // 更新彩色 Buff 芯片组（仅状态签变更时更新 DOM）
+  // Buff 芯片组
   const chips = [];
   if (battle.overdriveActive > 0)
     chips.push(['超载超频', Math.ceil(battle.overdriveActive) + 's', 'gold']);
   for (const [key, time] of Object.entries(battle.buffs)) {
-    if (time > 0) {
+    if (time > 0 && supplies[key]) {
       const info = supplies[key];
       chips.push([info.label, Math.ceil(time) + 's', key === 'frost' ? 'ice' : info.tone]);
     }
@@ -744,7 +779,7 @@ function hud() {
     }
   }
 
-  // 更新右侧连击倍率牌
+  // 右侧街机连击倍率牌
   const showCombo = showPlayHud && battle.combo >= 3;
   comboBox.hidden = !showCombo;
   if (showCombo) {
@@ -752,7 +787,8 @@ function hud() {
       lastCombo = battle.combo;
       $('comboCount').textContent = String(battle.combo);
       $('comboMult').textContent = `×${battle.comboDamageMult.toFixed(2)} 火力`;
-      comboBox.dataset.hot = battle.combo >= 80 ? '3' : battle.combo >= 40 ? '2' : battle.combo >= 15 ? '1' : '0';
+      comboBox.dataset.hot =
+        battle.combo >= 80 ? '3' : battle.combo >= 40 ? '2' : battle.combo >= 15 ? '1' : '0';
       if (!reducedMotion.matches && comboBox.animate) {
         comboBox.animate(
           [{ transform: 'scale(1.16)' }, { transform: 'scale(1)' }],
@@ -760,15 +796,15 @@ function hud() {
         );
       }
     }
-    $('comboFill').style.transform = `scaleX(${Math.max(0, Math.min(1, battle.comboTimer / 3.2)).toFixed(3)})`;
+    $('comboFill').style.transform = `scaleX(${Math.max(0, Math.min(1, battle.comboTimer / 3.4)).toFixed(3)})`;
   }
 
-  // 更新右下角「战术超载」单手大招按钮
+  // 右下角「战术超载」单手大招按钮
   overdriveBtn.hidden = !showPlayHud;
   if (showPlayHud) {
     const active = battle.overdriveActive > 0;
     const pct = active
-      ? Math.round((battle.overdriveActive / 4.2) * 100)
+      ? Math.round((battle.overdriveActive / 4.4) * 100)
       : Math.floor(battle.overdrive);
     const readyOd = !active && battle.overdrive >= 100;
     const odState = active ? 'active' : readyOd ? 'ready' : 'charge';
@@ -784,7 +820,7 @@ function hud() {
     }
   }
 
-  // 更新全屏边缘氛围光（受击红闪 / 超载狂热金边 / 霜冻冰边）
+  // 全屏边缘光效
   const fx = !showPlayHud
     ? ''
     : battle.hurt > 0.25
@@ -806,24 +842,8 @@ function hud() {
   lastPower = power;
   stage.dataset.phase = battle.phase;
 
-  const armor = $('armorMeter');
-  armor.hidden = !battle.playing || battle.armor === 3;
-  if (!armor.hidden) {
-    const p = view.project(battle.x, 1.94 * battle.visualScale, battle.captainZ);
-    armor.style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) + 'px)';
-    if (armor.dataset.value !== String(battle.armor)) {
-      armor.dataset.value = battle.armor;
-      armor.setAttribute('aria-label', '队长护甲 ' + battle.armor + ' / 3');
-    }
-  }
-
-  const b = battle.boss;
-  const bossVisible = b.active && !b.defeated && view.project(b.x, 0, b.z).y >= 4;
   bossBar.hidden = !bossVisible;
   bossHud.hidden = !bossVisible;
-  // Boss 战时把进化徽章微收或让位给顶部 Boss 血条避免窄屏重叠
-  if (bossVisible) evoBadge.hidden = true;
-
   if (bossVisible) {
     const definition = bosses[b.kind];
     const [height, offset] = definition.crown;
@@ -849,7 +869,7 @@ function hud() {
     }
     $('bossHudRage').hidden = !b.enraged;
 
-    const top = cachedHudTop + 44;
+    const top = cachedHudTop + 48;
     const sideAmount = 1 - Math.min(1, Math.max(0, (crown.y + 4 - top) / 27));
     if (taggedBoss !== b) {
       entrySide = crown.x < cachedStageW / 2 ? 1 : -1;
@@ -879,24 +899,25 @@ function hud() {
   if (battle.playing && !panel) {
     if (!toldWall && battle.wall.hp > 0 && battle.distance >= 10 && battle.wall.z < 0) {
       toldWall = true;
-      message('击碎装甲墙，或向左避开', 2.8);
+      message('打碎硬墙抢夺进化补给，或向左避开！', 2.8);
     }
-    if (battle.wall.hp <= 0 && tip.textContent === '击碎装甲墙，或向左避开') tip.hidden = true;
+    if (battle.wall.hp <= 0 && tip.textContent === '打碎硬墙抢夺进化补给，或向左避开！')
+      tip.hidden = true;
     if (bossVisible && !toldBoss) {
       toldBoss = true;
       $('bossAlertName').textContent = `${bosses[b.kind].name} · ${bosses[b.kind].skill}`;
       bossAlert.hidden = false;
       bossAlertUntil = battle.elapsed + 1.9;
-      message(bosses[b.kind].name + ' · 重炮直击，避开落点', 2.2);
+      message(bosses[b.kind].name + '来袭！小心连续高举砸地红圈', 2.4);
     }
     if (!bossAlert.hidden && battle.elapsed >= bossAlertUntil) bossAlert.hidden = true;
-    if (b.defeated && !toldClear && b.defeatAge >= 0.92) {
+    if (b.defeated && !toldClear && b.defeatAge >= 1.38) {
       toldClear = true;
-      message('Boss 已倒下，清理剩余红兵', 2.3);
+      message('首领已被击退击倒！清扫残敌夺取胜利', 2.3);
     }
     if (battle.hint && battle.hint.id !== lastHint) {
       lastHint = battle.hint.id;
-      message(battle.hint.text, 2.1);
+      message(battle.hint.text, 2.2);
     }
     if (!tip.hidden && battle.elapsed >= tipUntil) tip.hidden = true;
   }
@@ -989,7 +1010,7 @@ async function boot() {
     ready = true;
     stage.dataset.phase = 'ready';
     startButton.disabled = false;
-    startButton.lastElementChild.textContent = '开始出击';
+    startButton.lastElementChild.textContent = '立刻出击';
     requestAnimationFrame(loop);
   } catch (error) {
     console.error(error);

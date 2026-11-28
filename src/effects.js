@@ -530,6 +530,35 @@ export function createEffects(scene) {
     88,
     2,
   );
+
+  // 3D 动态锯齿闪电链渲染器（零分配，用于电磁工兵 / 雷霆电浆兵 / 电磁塔连锁放电）
+  const MAX_LIGHTNING_SEGS = 28 * 12; // 28 条闪电 × 双股 6 段
+  const lightningPositions = new Float32Array(MAX_LIGHTNING_SEGS * 2 * 3);
+  const lightningColors = new Float32Array(MAX_LIGHTNING_SEGS * 2 * 3);
+  const lightningGeo = new THREE.BufferGeometry();
+  const lightningPosAttr = new THREE.BufferAttribute(lightningPositions, 3).setUsage(
+    THREE.DynamicDrawUsage,
+  );
+  const lightningColAttr = new THREE.BufferAttribute(lightningColors, 3).setUsage(
+    THREE.DynamicDrawUsage,
+  );
+  lightningGeo.setAttribute('position', lightningPosAttr);
+  lightningGeo.setAttribute('color', lightningColAttr);
+  lightningGeo.setDrawRange(0, 0);
+  const lightningMesh = new THREE.LineSegments(
+    lightningGeo,
+    new THREE.LineBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+      toneMapped: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  lightningMesh.frustumCulled = false;
+  lightningMesh.renderOrder = 10;
+  scene.add(lightningMesh);
   const pose = new THREE.Object3D();
   const particles = [],
     chips = [],
@@ -1062,6 +1091,59 @@ export function createEffects(scene) {
         add(sprites.flash, x, y + 1.1, z, 0.9, 3.4, 0.3, { color: palette.orange, priority: true });
         scatterSparks(x, y + 0.9, z, 1.5, 18);
         return;
+      case 'barrelBlast':
+        blastTime = 0;
+        blast.position.set(x, 0.72, z);
+        blast.visible = true;
+        add(sprites.crack, x, 0.04, z, 2.2 * s, 2.9 * s, 1.9, {
+          flat: true,
+          angle: between(0, TAU),
+          hold: 0.55,
+          priority: true,
+        });
+        add(sprites.goldWave, x, 0.08, z, 0.55, 5.4 * s, 0.42, {
+          flat: true,
+          color: palette.orange,
+          priority: true,
+        });
+        add(sprites.wave, x, 0.1, z, 0.4, 4.4 * s, 0.34, {
+          flat: true,
+          color: palette.gold,
+          priority: true,
+        });
+        add(sprites.flash, x, y + 0.5, z, 0.9 * s, 2.8 * s, 0.22, {
+          color: palette.pearl,
+          priority: true,
+        });
+        debris(x, 0.35, z, 18, 0.85, true);
+        scatterSparks(x, y + 0.4, z, 1.45 * s, 20);
+        scatterSmoke(x, 0.32, z, 1.35 * s, 10, palette.smoke);
+        return;
+      case 'lavaBurst':
+        add(sprites.wave, x, 0.09, z, 0.45, 4.2 * s, 0.44, {
+          flat: true,
+          color: palette.fire,
+          priority: true,
+        });
+        add(sprites.flash, x, y + 1.2, z, 0.85, 2.6, 0.28, {
+          color: palette.orange,
+          ratio: 2.2,
+          priority: true,
+        });
+        for (let i = 0; i < 12; i++) {
+          const a = (i * TAU) / 12 + between(-0.15, 0.15);
+          add(sprites.ember, x, 0.4, z, 0.32, 0.06, between(0.45, 0.78), {
+            color: i % 2 ? palette.gold : palette.fire,
+            vx: Math.cos(a) * between(1.2, 3.2),
+            vz: Math.sin(a) * between(1.2, 3.2),
+            vy: between(4.5, 7.6),
+            gravity: 11,
+            ratio: 1.8,
+            priority: true,
+          });
+        }
+        scatterSmoke(x, 0.4, z, 1.15, 6, palette.smoke);
+        return;
       case 'discharge':
         add(sprites.wave, x, 0.1, z, 0.45, 8.5, 0.35, { flat: true, color: palette.aqua });
         add(sprites.flash, x, y + 0.45, z, 0.63, 3.4, 0.23, { color: palette.aqua });
@@ -1179,7 +1261,7 @@ export function createEffects(scene) {
     tile === sprites.flash ||
     tile === sprites.ember;
 
-  function update(dt, worldAdvance, projectiles, incoming = []) {
+  function update(dt, worldAdvance, projectiles, incoming = [], lightningArcs = [], merges = []) {
     if (blast.visible) {
       blastTime += dt;
       const u = Math.min(1, blastTime / 0.44);
@@ -1194,6 +1276,83 @@ export function createEffects(scene) {
     marks.clear();
     glowMarks.clear();
     packProjectiles(projectiles, step);
+
+    // 合成飞旋汇聚流光特效
+    for (const m of merges) {
+      const t = clamp(m.age / m.duration, 0, 1);
+      glowMarks.write(
+        m.x,
+        m.y + 0.35,
+        m.z,
+        0.55 + 0.4 * (1 - t),
+        0.55 + 0.4 * (1 - t),
+        false,
+        sprites.glow,
+        t > 0.55 ? palette.gold : palette.aqua,
+        0.92,
+      );
+      glowMarks.write(m.x, m.y + 0.35, m.z, 0.42, 0.42, false, sprites.glint, palette.pearl, 0.95);
+    }
+
+    // 绘制 3D 锯齿连锁闪电
+    let lVerts = 0;
+    const maxVerts = MAX_LIGHTNING_SEGS * 2;
+    for (const arc of lightningArcs) {
+      const fade = 1 - clamp(arc.age / arc.life, 0, 1);
+      if (fade <= 0.02) continue;
+      glowMarks.write(arc.bx, arc.by, arc.bz, 0.52 * fade, 0.52 * fade, false, sprites.glint, palette.aqua, fade);
+      for (let strand = 0; strand < 2; strand++) {
+        const segs = 6;
+        const jitter = strand === 0 ? 0.34 : 0.16;
+        const r = (strand === 0 ? 0.32 : 0.92) * fade;
+        const g = (strand === 0 ? 0.92 : 1.0) * fade;
+        const b = 1.0 * fade;
+        let px = arc.ax,
+          py = arc.ay,
+          pz = arc.az;
+        for (let sIdx = 1; sIdx <= segs; sIdx++) {
+          if (lVerts + 2 > maxVerts) break;
+          const u = sIdx / segs;
+          const midWeight = Math.sin(u * Math.PI);
+          const nx =
+            arc.ax +
+            (arc.bx - arc.ax) * u +
+            (sIdx < segs ? (Math.random() - 0.5) * 2 * jitter * midWeight : 0);
+          const ny =
+            arc.ay +
+            (arc.by - arc.ay) * u +
+            (sIdx < segs ? (Math.random() - 0.35) * jitter * midWeight + 0.12 * midWeight : 0);
+          const nz =
+            arc.az +
+            (arc.bz - arc.az) * u +
+            (sIdx < segs ? (Math.random() - 0.5) * 1.4 * jitter * midWeight : 0);
+          const off = lVerts * 3;
+          lightningPositions[off] = px;
+          lightningPositions[off + 1] = py;
+          lightningPositions[off + 2] = pz;
+          lightningPositions[off + 3] = nx;
+          lightningPositions[off + 4] = ny;
+          lightningPositions[off + 5] = nz;
+          lightningColors[off] = lightningColors[off + 3] = r;
+          lightningColors[off + 1] = lightningColors[off + 4] = g;
+          lightningColors[off + 2] = lightningColors[off + 5] = b;
+          lVerts += 2;
+          px = nx;
+          py = ny;
+          pz = nz;
+        }
+      }
+    }
+    lightningGeo.setDrawRange(0, lVerts);
+    lightningMesh.visible = lVerts > 0;
+    if (lVerts > 0) {
+      lightningPosAttr.clearUpdateRanges();
+      lightningPosAttr.addUpdateRange(0, lVerts * 3);
+      lightningPosAttr.needsUpdate = true;
+      lightningColAttr.clearUpdateRanges();
+      lightningColAttr.addUpdateRange(0, lVerts * 3);
+      lightningColAttr.needsUpdate = true;
+    }
     for (const p of incoming) {
       glowMarks.write(
         p.x - p.vx * 0.038,
@@ -1308,6 +1467,8 @@ export function createEffects(scene) {
     marks.flush();
     glowMarks.clear();
     glowMarks.flush();
+    lightningGeo.setDrawRange(0, 0);
+    lightningMesh.visible = false;
   }
   reset();
   return { update, burst, reset };

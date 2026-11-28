@@ -3,7 +3,7 @@
  * 负责本地存档读写、关卡 1~3 星评价计算、远征军饷结算与军械整备永久升级。
  */
 
-const STORAGE_KEY = 'xiaobing-jinhua-save-v2';
+const STORAGE_KEY = 'xiaobing-jinhua-save-v3';
 
 /** 军械整备升级项配置 */
 export const ARMORY_UPGRADES = [
@@ -74,8 +74,9 @@ export function loadProgress(storage = globalThis.localStorage) {
     base.totalKills = Math.max(0, Math.trunc(Number(parsed.totalKills) || 0));
     if (parsed.stars && typeof parsed.stars === 'object') {
       for (const [k, v] of Object.entries(parsed.stars)) {
+        const stageNum = Math.trunc(Number(k) || 0);
         const n = Math.trunc(Number(v) || 0);
-        if (n >= 1 && n <= 3) base.stars[k] = n;
+        if (stageNum >= 1 && stageNum <= 3 && n >= 1 && n <= 3) base.stars[String(stageNum)] = n;
       }
     }
     if (parsed.upgrades && typeof parsed.upgrades === 'object') {
@@ -120,12 +121,12 @@ export function evaluateRun(state, battle, won) {
   if (won) {
     stars = 1;
     criteria.push({ ok: true, text: '击败首领通过关卡' });
-    const armorOk = battle.armor >= 2;
+    const armorOk = battle.squad.some((u) => u.kind === 'captain' || u.kind === 'titan');
     if (armorOk) stars++;
-    criteria.push({ ok: armorOk, text: '队长保留至少 2 格护甲' });
-    const masteryOk = (battle.maxCombo || 0) >= 30 || battle.allies.length >= 12;
+    criteria.push({ ok: armorOk, text: '成功合成重炮队长或钢铁指挥官' });
+    const masteryOk = (battle.maxCombo || 0) >= 25 || battle.squad.length >= 8;
     if (masteryOk) stars++;
-    criteria.push({ ok: masteryOk, text: '最高连击 ≥ 30 或 存活兵力 ≥ 12' });
+    criteria.push({ ok: masteryOk, text: '最高连击 ≥ 25 或 存活兵力 ≥ 8' });
   }
 
   const stageBase = 45 + battle.stage * 10;
