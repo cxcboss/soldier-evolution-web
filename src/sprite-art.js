@@ -244,18 +244,24 @@ export async function createSpriteArt(scene) {
     for (const a of s.allies) {
       const p = clamp(a.age / 0.32, 0, 1),
         pop = 0.81 + 0.19 * p + 0.095 * Math.sin(p * Math.PI);
+      const tier = s.tier || 1;
+      // 进化精锐兵自带暖金/电浆光泽，直观呈现军团进化梯度
+      const elite =
+        (tier >= 4 || (tier === 3 && a.slot % 2 === 0) || (tier === 2 && a.slot % 4 === 0)) ? 1 : 0;
+      const goldTint = Math.max(0.8 * (1 - p), elite * (tier >= 4 ? 0.34 : 0.2));
+      const eliteScale = elite ? 1.07 : 1;
       batches.ally.add(
         a.x,
         0.035 * Math.sin(p * Math.PI),
         a.z,
-        pop,
-        pop,
+        pop * eliteScale,
+        pop * eliteScale,
         step + a.phase,
         moving,
         0,
         0,
-        0.8 * (1 - p),
-        0.22 * (1 - p),
+        goldTint,
+        0.22 * (1 - p) + (s.buffs.fever > 0 ? 0.14 : 0),
       );
     }
     for (const f of s.deliveries) {
@@ -286,8 +292,8 @@ export async function createSpriteArt(scene) {
           );
           continue;
         }
-        const p = clamp(e.t / 1.02, 0, 1),
-          size = e.size * (1 - smooth(p, 0.78, 1));
+        const p = clamp(e.t / 0.72, 0, 1),
+          size = e.size * (1 - smooth(p, 0.55, 1));
         const tilt = e.roll * e.t + 0.16 * Math.sin(e.spin * e.t);
         const batch = e.side === 'red' ? batches.grunt : batches.ally;
         batch.add(
@@ -300,9 +306,9 @@ export async function createSpriteArt(scene) {
           0,
           tilt,
           0,
-          0,
-          0.64 * (1 - smooth(p, 0.04, 0.31)),
-          0.72 * smooth(p, 0.05, 0.31),
+          0.55 * (1 - smooth(p, 0.08, 0.45)),
+          0.72 * (1 - smooth(p, 0.03, 0.26)),
+          0.22 * smooth(p, 0.25, 0.75),
         );
       }
       if (full && (s.phase !== 'lost' || s.overrun || s.endTime < 0.25)) {

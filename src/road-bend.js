@@ -54,16 +54,35 @@ export function createRoadBend(renderer, scene) {
     roadRight: { value: right },
     roadDepth: { value: depth },
   });
+  let lastChildStamp = -1;
+  let forceScan = true;
   function prepare(mesh) {
     if (!mesh.material) return;
     if (Array.isArray(mesh.material)) mesh.material.forEach(wrapMaterial);
     else wrapMaterial(mesh.material);
-    // The simulation streams visible depth. CPU bounds alone cannot cull
-    // across a bend because they describe the straightened lane space.
+    // 弯道着色器会横向偏移顶点，关闭 CPU 视锥剔除避免弯道边缘被误裁
     mesh.frustumCulled = false;
   }
+  function scanNode(node) {
+    if (!node) return;
+    node.traverse(prepare);
+  }
   return {
+    /** 仅在场景结构发生变化或被显式标脏时扫描绑定弯道材质，避免每帧全树遍历 */
+    markDirty() {
+      forceScan = true;
+    },
+    scanNode,
     prepareScene() {
+      // 快速检测顶层及主要分组的子节点数量变化，兼顾动态懒加载的 Boss/地形节点
+      let stamp = scene.children.length;
+      for (let i = 0; i < scene.children.length; i++) {
+        const c = scene.children[i];
+        stamp = (stamp * 31 + c.children.length + (c.visible ? 1 : 0)) | 0;
+      }
+      if (!forceScan && stamp === lastChildStamp) return;
+      lastChildStamp = stamp;
+      forceScan = false;
       scene.traverseVisible(prepare);
     },
     setRoute(theme, stage, distance) {

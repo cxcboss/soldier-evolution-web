@@ -155,11 +155,20 @@ function strike(b, cast, mark) {
 }
 export function advanceSkill(b, dt) {
   const boss = b.boss;
-  const siegeFinale = b.route.siege && boss.hp <= boss.maxHp * 0.5;
+  const halfHp = boss.hp > 0 && boss.hp <= boss.maxHp * 0.5;
+  const siegeFinale = b.route.siege && halfHp;
+  if (halfHp && !boss.enraged && boss.active && !boss.defeated) {
+    boss.enraged = true;
+    boss.nextCast = Math.min(boss.nextCast, siegeFinale ? 1.3 : 1.8);
+    b.event('bossEnrage', boss.x, 1.2, boss.z, 1.25);
+    b.notice(
+      siegeFinale
+        ? '地龙进入狂攻，连续避开晶刺'
+        : bosses[boss.kind].name + '进入狂暴，攻势加快！',
+    );
+  }
   if (siegeFinale && !boss.secondWind) {
     boss.secondWind = true;
-    boss.nextCast = Math.min(boss.nextCast, 1.3);
-    b.notice('地龙进入狂攻，连续避开晶刺');
   }
   if (!boss.skill) {
     boss.nextCast -= dt;
@@ -188,6 +197,8 @@ export function advanceSkill(b, dt) {
     }
   if (s.age > s.warm + s.flight + s.marks.at(-1).delay + 0.65) {
     boss.skill = null;
-    boss.nextCast = siegeFinale ? 1.8 : bosses[boss.kind].cooldown;
+    boss.nextCast = siegeFinale
+      ? 1.8
+      : bosses[boss.kind].cooldown * (boss.enraged ? 0.76 : 1);
   }
 }

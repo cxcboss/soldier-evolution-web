@@ -31,6 +31,11 @@ const cues = {
   victory: { duration: 0.79, gain: 0.28, interval: 0.7 },
   loss: { duration: 0.63, gain: 0.25, interval: 0.57 },
   hit: { duration: 0.09, gain: 0.075, interval: 0.14 },
+  critHit: { duration: 0.16, gain: 0.18, interval: 0.11 },
+  evolve: { duration: 0.82, gain: 0.32, interval: 0.6 },
+  overdrive: { duration: 0.76, gain: 0.38, interval: 0.6 },
+  bossEnrage: { duration: 0.72, gain: 0.34, interval: 0.8 },
+  buy: { duration: 0.32, gain: 0.24, interval: 0.12 },
 };
 
 // Render each miniature sound once. A volley subsequently starts a single buffered voice.
@@ -219,6 +224,31 @@ function buildSound(context, kind) {
     case 'hit':
       noise(0, 0.061, 1290, 0.58);
       tone(0.003, 0.07, 580, 280, 0.24);
+      break;
+    case 'critHit':
+      bell(0, 0.12, 1760, 0.56);
+      tone(0, 0.1, 880, 1320, 0.36, 0.2);
+      noise(0, 0.045, 4200, 0.35);
+      break;
+    case 'evolve':
+      for (const [i, hz] of [523, 659, 784, 1047, 1319].entries())
+        bell(i * 0.072, 0.34, hz, 0.56);
+      tone(0.04, 0.45, 262, 523, 0.35, 0.22);
+      break;
+    case 'overdrive':
+      tone(0, 0.52, 220, 46, 0.95, 0.52);
+      noise(0, 0.34, 2400, 0.85);
+      bell(0.06, 0.3, 659, 0.42);
+      bell(0.14, 0.34, 988, 0.48);
+      break;
+    case 'bossEnrage':
+      tone(0, 0.56, 135, 58, 0.88, 0.55);
+      noise(0.04, 0.52, 1150, 0.72);
+      tone(0.18, 0.42, 180, 92, 0.52, 0.35);
+      break;
+    case 'buy':
+      bell(0, 0.12, 880, 0.52);
+      bell(0.075, 0.2, 1319, 0.62);
       break;
   }
   let peak = 0.001;

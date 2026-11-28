@@ -21,9 +21,12 @@ export function hitMechanism(b, p, shot) {
   p.hp = Math.max(0, p.hp - damage);
   p.flash = 1;
   if (p.hp > 0) {
+    if (latch && b.addPopup) b.addPopup(shot.x, 1.15, shot.z, '弱点 ×2.2', 'crit');
     b.event(latch ? 'latchHit' : 'wallHit', shot.x, 0.65, shot.z, 0.55);
     return;
   }
+  if (b.addOverdrive) b.addOverdrive(8);
+  if (b.addCombo) b.addCombo(2);
   p.age = 0;
   if (p.kind === 'cover') {
     p.state = 'open';

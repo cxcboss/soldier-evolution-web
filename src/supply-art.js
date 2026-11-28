@@ -90,76 +90,124 @@ function texture(canvas) {
   map.anisotropy = 4;
   return map;
 }
-export function makeSignTexture(type) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 640;
-  canvas.height = 196;
-  const ctx = canvas.getContext('2d');
+function paintSignCard(ctx, type, ox, oy, w, h) {
+  ctx.save();
+  ctx.translate(ox, oy);
+  ctx.scale(w / 640, h / 196);
   const p = metal[supplies[type].tone];
   const g = ctx.createLinearGradient(0, 0, 0, 196);
   g.addColorStop(0, p.top);
-  g.addColorStop(0.64, p.bottom);
-  g.addColorStop(1, p.bottom);
+  g.addColorStop(0.52, p.bottom);
+  g.addColorStop(1, p.shade);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 640, 196);
+  // 左侧深色徽章斜切底座
   polygon(
     ctx,
     [
       [0, 0],
-      [143, 0],
-      [99, 196],
+      [152, 0],
+      [104, 196],
       [0, 196],
     ],
     p.shade,
   );
+  // 顶部金属高光斜带（增添珐琅漆立体反光）
+  const sheen = ctx.createLinearGradient(160, 0, 560, 180);
+  sheen.addColorStop(0, 'rgba(255,255,255,0.22)');
+  sheen.addColorStop(0.45, 'rgba(255,255,255,0.04)');
+  sheen.addColorStop(0.55, 'rgba(255,255,255,0.16)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(105, 8, 530, 110);
+  // 顶边与底边金属倒角亮线
   polygon(
     ctx,
     [
       [0, 0],
       [640, 0],
-      [640, 8],
-      [12, 8],
-      [0, 20],
+      [640, 10],
+      [14, 10],
+      [0, 22],
     ],
     p.rim,
   );
-  ctx.fillStyle = 'rgba(255,255,255,.10)';
-  ctx.fillRect(13, 177, 614, 3);
-  // Recessed fasteners and the two enamel ribs stay clear of the lettering.
-  for (const x of [13, 627])
-    for (const y of [22, 175]) {
+  ctx.fillStyle = 'rgba(255,255,255,.18)';
+  ctx.fillRect(14, 178, 612, 4);
+  // 四角铆钉装饰
+  for (const x of [14, 626])
+    for (const y of [23, 175]) {
       ctx.fillStyle = p.shade;
       ctx.fillRect(x - 4, y - 3, 8, 6);
       ctx.fillStyle = p.light;
       ctx.fillRect(x - 3, y - 3, 6, 2);
     }
-  for (const x of [551, 576, 601])
+  // 右下角动感速度斜纹
+  for (const x of [548, 574, 600])
     polygon(
       ctx,
       [
-        [x, 154],
-        [x + 13, 154],
-        [x + 7, 164],
-        [x - 6, 164],
+        [x, 152],
+        [x + 14, 152],
+        [x + 8, 165],
+        [x - 6, 165],
       ],
       p.rim,
     );
-  badge(ctx, type, 69, 96, 100);
+  badge(ctx, type, 71, 98, 106);
   const reward = supplies[type];
-  const size = reward.count ? 150 : 125;
+  const size = reward.count ? 150 : 124;
   ctx.font = '900 ' + size + 'px "Arial Black", "PingFang SC", "Microsoft YaHei", sans-serif';
   ctx.textAlign = 'center';
   const text = ctx.measureText(reward.label);
-  const cy = 96 + (text.actualBoundingBoxAscent - text.actualBoundingBoxDescent) / 2;
-  ctx.translate(357, cy);
-  ctx.scale(Math.min(1, 412 / text.width), 1);
+  const cy = 98 + (text.actualBoundingBoxAscent - text.actualBoundingBoxDescent) / 2;
+  ctx.translate(362, cy);
+  ctx.scale(Math.min(1, 405 / text.width), 1);
   ctx.lineJoin = 'round';
-  ctx.lineWidth = reward.count ? 14 : 11;
-  ctx.strokeStyle = '#172d42';
-  ctx.strokeText(reward.label, 0, 2);
+  ctx.lineWidth = reward.count ? 16 : 12;
+  ctx.strokeStyle = '#14263b';
+  ctx.strokeText(reward.label, 0, 3);
   ctx.fillStyle = p.ink;
   ctx.fillText(reward.label, 0, 0);
+  ctx.restore();
+}
+
+export function makeSignTexture(type) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 196;
+  const ctx = canvas.getContext('2d');
+  paintSignCard(ctx, type, 0, 0, 640, 196);
   return texture(canvas);
+}
+
+/**
+ * 将全部 16 种补给牌面合批到单张 4x4 纹理图集，大幅削减 Draw Call
+ */
+export function makeSignAtlas() {
+  const types = Object.keys(supplies);
+  const cols = 4;
+  const rows = Math.ceil(types.length / cols);
+  const cellW = 512;
+  const cellH = 160;
+  const canvas = document.createElement('canvas');
+  canvas.width = cols * cellW;
+  canvas.height = rows * cellH;
+  const ctx = canvas.getContext('2d');
+  const cells = new Map();
+  types.forEach((type, i) => {
+    const cx = i % cols;
+    const cy = Math.floor(i / cols);
+    paintSignCard(ctx, type, cx * cellW, cy * cellH, cellW, cellH);
+    // WebGL UV 原点在左下角，Canvas 原点在左上角
+    cells.set(type, [cx / cols, 1 - (cy + 1) / rows]);
+  });
+  return {
+    map: texture(canvas),
+    cells,
+    scaleU: 1 / cols,
+    scaleV: 1 / rows,
+  };
 }
 
 export function makeSupplyTokens(scene) {
@@ -221,8 +269,13 @@ export function makeSupplyTokens(scene) {
         uv.setXY(n++, cell[0], cell[1]);
       }
       mesh.count = n;
+      mesh.visible = n > 0;
       if (n) {
+        mesh.instanceMatrix.clearUpdateRanges();
+        mesh.instanceMatrix.addUpdateRange(0, n * 16);
         mesh.instanceMatrix.needsUpdate = true;
+        uv.clearUpdateRanges();
+        uv.addUpdateRange(0, n * 2);
         uv.needsUpdate = true;
       }
     },

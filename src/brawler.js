@@ -5,59 +5,84 @@ import { createCreatureBosses } from './creature-bosses.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { jumpProgress, smoothRange, takeoff, touchdown, attackDuration } from './brawler-motion.js';
 
-export async function loadBrawler() {
-  const { scene: root } = await new GLTFLoader().loadAsync('./art/brawler.glb?v=ringmaster2');
+export function loadBrawler() {
+  const root = new THREE.Group();
   const paint = creaturePaint();
-  const bone = (name) => root.getObjectByName(name);
-  const pelvis = bone('Pelvis'),
-    spine = bone('Spine'),
-    head = bone('Head');
-  const hipsY = pelvis.position.y;
-  const limbs = ['L', 'R'].map((side) =>
-    Object.fromEntries(
-      ['Hip', 'Knee', 'Ankle', 'Arm', 'Elbow', 'Wrist'].map((name) => [name, bone(name + side)]),
-    ),
-  );
-  const skin = bone('Brawler');
-  skin.frustumCulled = false;
-  const material = skin.material;
-  material.color.setScalar(0.78);
-  material.emissiveMap = material.map;
-  material.emissive.setScalar(0.22);
-
-  // Give the buckle a beveled edge and an open centre even when seen obliquely.
-  const frame = new THREE.Shape();
-  frame.moveTo(-0.17, -0.125);
-  frame.lineTo(0.17, -0.125);
-  frame.quadraticCurveTo(0.21, -0.125, 0.21, -0.088);
-  frame.lineTo(0.21, 0.092);
-  frame.quadraticCurveTo(0.21, 0.125, 0.17, 0.125);
-  frame.lineTo(-0.17, 0.125);
-  frame.quadraticCurveTo(-0.21, 0.125, -0.21, 0.086);
-  frame.lineTo(-0.21, -0.086);
-  frame.quadraticCurveTo(-0.21, -0.125, -0.17, -0.125);
-  const opening = new THREE.Path();
-  opening.moveTo(-0.145, -0.072);
-  opening.lineTo(-0.145, 0.072);
-  opening.lineTo(0.145, 0.072);
-  opening.lineTo(0.145, -0.072);
-  opening.closePath();
-  frame.holes.push(opening);
-  const buckle = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(frame, {
-      depth: 0.027,
-      bevelThickness: 0.009,
-      bevelSize: 0.009,
-      bevelSegments: 2,
-    }),
-    new THREE.MeshStandardMaterial({ color: 0xb9a38c, metalness: 0.37, roughness: 0.52 }),
-  );
-  buckle.position.set(0, 0.15, 0.85);
-  buckle.rotation.x = -0.11;
-  pelvis.add(buckle);
-
   const creature = createCreatureBosses(root, paint);
   const feet = new Float32Array(3);
+
+  let brawlerReady = null;
+  let glb = null;
+
+  /** 按需加载 1.77MB 的铁拳队长 GLB，生物 Boss 关卡无需首屏阻塞等待 */
+  function loadBruiserModel() {
+    if (brawlerReady) return brawlerReady;
+    brawlerReady = new GLTFLoader()
+      .loadAsync('./art/brawler.glb?v=ringmaster2')
+      .then(({ scene: model }) => {
+        root.add(model);
+        const bone = (name) => model.getObjectByName(name);
+        const pelvis = bone('Pelvis'),
+          spine = bone('Spine'),
+          head = bone('Head');
+        const hipsY = pelvis.position.y;
+        const limbs = ['L', 'R'].map((side) =>
+          Object.fromEntries(
+            ['Hip', 'Knee', 'Ankle', 'Arm', 'Elbow', 'Wrist'].map((name) => [
+              name,
+              bone(name + side),
+            ]),
+          ),
+        );
+        const skin = bone('Brawler');
+        skin.frustumCulled = false;
+        const material = skin.material;
+        material.color.setScalar(0.84);
+        material.emissiveMap = material.map;
+        material.emissive.setScalar(0.24);
+
+        // 金属腰带扣倒角细节
+        const frame = new THREE.Shape();
+        frame.moveTo(-0.17, -0.125);
+        frame.lineTo(0.17, -0.125);
+        frame.quadraticCurveTo(0.21, -0.125, 0.21, -0.088);
+        frame.lineTo(0.21, 0.092);
+        frame.quadraticCurveTo(0.21, 0.125, 0.17, 0.125);
+        frame.lineTo(-0.17, 0.125);
+        frame.quadraticCurveTo(-0.21, 0.125, -0.21, 0.086);
+        frame.lineTo(-0.21, -0.086);
+        frame.quadraticCurveTo(-0.21, -0.125, -0.17, -0.125);
+        const opening = new THREE.Path();
+        opening.moveTo(-0.145, -0.072);
+        opening.lineTo(-0.145, 0.072);
+        opening.lineTo(0.145, 0.072);
+        opening.lineTo(0.145, -0.072);
+        opening.closePath();
+        frame.holes.push(opening);
+        const buckle = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(frame, {
+            depth: 0.027,
+            bevelThickness: 0.009,
+            bevelSize: 0.009,
+            bevelSegments: 2,
+          }),
+          new THREE.MeshStandardMaterial({ color: 0xc9b08e, metalness: 0.48, roughness: 0.42 }),
+        );
+        buckle.position.set(0, 0.15, 0.85);
+        buckle.rotation.x = -0.11;
+        pelvis.add(buckle);
+        glb = { model, pelvis, spine, head, hipsY, limbs, skin, material, buckle };
+        return true;
+      });
+    return brawlerReady;
+  }
+
+  function prepare(kind) {
+    if (kind === 'bruiser') return loadBruiserModel();
+    // 生物关卡仅加载对应皮肤，同时后台空闲预载铁拳模型
+    return paint.prepare(kind);
+  }
+
   function pose({
     time,
     walk,
@@ -85,8 +110,9 @@ export async function loadBrawler() {
       mode,
       hit,
     });
-    skin.visible = buckle.visible = !isCreature;
-    if (isCreature) return;
+    if (glb) glb.skin.visible = glb.buckle.visible = !isCreature;
+    if (isCreature || !glb) return;
+    const { pelvis, spine, head, hipsY, limbs, material } = glb;
     const vaultT = Math.min(1, vault / 1.35);
     const bound = Math.sin(Math.PI * Math.max(0, Math.min(1, (vault - 0.21) / 0.89)));
     const gather = smoothRange(vault, 0, 0.14) * (1 - smoothRange(vault, 0.14, 0.32));
@@ -191,7 +217,7 @@ export async function loadBrawler() {
         side * (0.075 * swing + 0.11 * raised),
       );
     }
-    material.emissive.setRGB(0.22 + hit * 0.36, 0.22 + hit * 0.21, 0.22 + hit * 0.12);
+    material.emissive.setRGB(0.24 + hit * 0.52, 0.24 + hit * 0.3, 0.24 + hit * 0.16);
   }
-  return { root, pose, prepare: paint.prepare };
+  return { root, pose, prepare };
 }

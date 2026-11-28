@@ -38,6 +38,24 @@ const MARCH_SPEED = 2.47;
 const waveLanes = [[-1, 1], [1, 0], [-1, 0], [1], [0, -1], [1, -1], [0], [0, 1], [-1]];
 const PACK_ROWS = 11;
 
+/** 军团四阶进化体系定义 */
+export const EVOLUTION_TIERS = [
+  { tier: 1, name: '登陆新兵', need: 0, fireRate: 1.0, critBonus: 0, blastBonus: 1.0 },
+  { tier: 2, name: '突击精锐', need: 14, fireRate: 1.06, critBonus: 0.08, blastBonus: 1.06 },
+  { tier: 3, name: '重装连队', need: 38, fireRate: 1.12, critBonus: 0.14, blastBonus: 1.16 },
+  { tier: 4, name: '钢铁军团', need: 76, fireRate: 1.18, critBonus: 0.2, blastBonus: 1.24 },
+];
+
+/** 原地压缩数组，避免 60fps 热循环频繁创建新数组触发 GC */
+function compact(list, keep) {
+  let write = 0;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    if (keep(item)) list[write++] = item;
+  }
+  list.length = write;
+}
+
 function formation(slot, scale) {
   let ring = 0,
     offset = slot,
@@ -115,6 +133,23 @@ export class Battle {
     };
     this.supportTimer = 0;
     this.feverMeter = 0;
+    // 军团进化、连击暴击、战术超载大招与局外加成状态
+    this.bonuses = {
+      extraAllies: 0,
+      cannonMult: 1,
+      critChanceBonus: 0,
+      overdriveRateMult: 1,
+      startingOverdrive: 0,
+    };
+    this.evoPoints = 0;
+    this.tier = 1;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.comboTimer = 0;
+    this.overdrive = 0;
+    this.overdriveActive = 0;
+    this.popups = [];
+    this._frontage = [];
     this.row = 0;
     this.toNextRow = 0;
     this.entryZ ??= -46;
@@ -147,6 +182,7 @@ export class Battle {
       pattern: 0,
       brace: 0,
       defeatAge: 0,
+      enraged: false,
       attackT: 0,
       impactDone: false,
       pursuing: false,
@@ -220,7 +256,97 @@ export class Battle {
     return 2.3 - 1.48 * smoothRange(this.boss.z, -16, -10);
   }
   get cannonDamage() {
-    return 26 + this.upgrades * 5 + Math.round((this.stage - 1) * 0.88);
+    const base = 26 + this.upgrades * 5 + Math.round((this.stage - 1) * 0.88);
+    return Math.round(base * (this.bonuses?.cannonMult || 1));
+  }
+  /** 注入军械整备永久加成（仅局内 UI 流程调用，保持基础单测确定性） */
+  applyBonuses(bonuses) {
+    if (!bonuses) return;
+    this.bonuses = { ...this.bonuses, ...bonuses };
+    if (bonuses.startingOverdrive > 0) {
+      this.overdrive = Math.min(100, bonuses.startingOverdrive);
+    }
+    const extra = Math.max(0, Math.trunc(bonuses.extraAllies || 0));
+    for (let i = 0; i < extra; i++) this.recruit(this.x, true);
+  }
+  /** 推送一条 3D 世界坐标飘浮战斗文字，由主循环每帧消费渲染 */
+  addPopup(x, y, z, text, kind = 'dmg') {
+    if (this.popups.length >= 24) return;
+    this.popups.push({ x, y, z, text, kind });
+  }
+  /** 累加连击并维护最高纪录 */
+  addCombo(amount = 1) {
+    if (!this.playing) return;
+    this.combo += amount;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+    this.comboTimer = 3.2;
+  }
+  /** 累加战术超载充能槽（0~100） */
+  addOverdrive(amount) {
+    if (!this.playing || this.overdriveActive > 0) return;
+    const rate = this.bonuses?.overdriveRateMult || 1;
+    this.overdrive = Math.min(100, this.overdrive + amount * rate);
+  }
+  /** 累加进化经验并在突破阈值时触发军团阶梯进化 */
+  addEvo(points) {
+    if (!this.playing) return;
+    this.evoPoints += points;
+    let next = this.tier;
+    for (const def of EVOLUTION_TIERS) {
+      if (this.evoPoints >= def.need) next = def.tier;
+    }
+    if (next > this.tier) {
+      this.tier = next;
+      const def = EVOLUTION_TIERS[next - 1];
+      this.mergeGlow = 1;
+      this.scale = Math.max(this.scale, 1 + (next - 1) * 0.1 + Math.min(0.45, this.upgrades * 0.1));
+      this.event('evolve', this.x, 0.35, this.captainZ, 1.2);
+      this.addPopup(this.x, 2.25, this.captainZ, `进化 Lv.${next} ${def.name}`, 'evolve');
+      this.notice(`军团进化！Lv.${next} ${def.name}`);
+    }
+  }
+  /** 当前连击带来的伤害倍率 */
+  get comboDamageMult() {
+    if (this.combo >= 80) return 1.18;
+    if (this.combo >= 40) return 1.12;
+    if (this.combo >= 15) return 1.06;
+    return 1;
+  }
+  /** 当前总暴击几率 */
+  get critChance() {
+    const tierBonus = EVOLUTION_TIERS[(this.tier || 1) - 1].critBonus;
+    const comboBonus = this.combo >= 80 ? 0.16 : this.combo >= 40 ? 0.1 : this.combo >= 15 ? 0.05 : 0;
+    const odBonus = this.overdriveActive > 0 ? 0.35 : 0;
+    return Math.min(0.85, tierBonus + comboBonus + odBonus + (this.bonuses?.critChanceBonus || 0));
+  }
+  /** 主动释放「战术超载 · 终极齐射」大招 */
+  triggerOverdrive() {
+    if (!this.playing || this.caught || this.overdrive < 100 || this.overdriveActive > 0) return false;
+    this.overdrive = 0;
+    this.overdriveActive = 4.2;
+    this.buffs.shield = Math.max(this.buffs.shield, 1.8);
+    this.mergeGlow = 1;
+    this.recoil = 1;
+    this.event('overdrive', this.x, 0.4, this.captainZ, 1.5);
+    this.addPopup(this.x, 2.35, this.captainZ, '战术超载 · 齐射!', 'evolve');
+    this.notice('战术超载启动！全队火力超频');
+    // 瞬间向前方扇形倾泻 5 枚高爆暴击重炮
+    const power = (1 + Math.min(1.7, this.upgrades * 0.28)) * 1.3;
+    const y = 1.32 * this.visualScale;
+    const z = this.captainZ - 0.55 * this.visualScale;
+    for (const slope of [-0.24, -0.12, 0, 0.12, 0.24]) {
+      const shot = this.launch(
+        this.x + slope * 1.1,
+        y,
+        z,
+        cannonRound,
+        power,
+        Math.round(this.cannonDamage * 1.35),
+        slope,
+      );
+      if (shot) shot.crit = true;
+    }
+    return true;
   }
   nextSlot() {
     const used = new Set(this.allies.map((a) => a.slot));
@@ -247,6 +373,8 @@ export class Battle {
     card.collectedAt = this.elapsed;
     card.pop = 0;
     this.event('supplyBreak', card.x, 0.62, card.z, 1, card.type);
+    this.addOverdrive(6.5);
+    this.addEvo(card.type === 'merge' ? 8 : 3);
     if (card.type === 'blast') {
       // The charge bursts into the ranks beside the card, on the same stretch of bridge.
       const blastX = card.x;
@@ -288,11 +416,13 @@ export class Battle {
       if (t < 1) continue;
       if (f.slot != null) {
         this.recruit(this.x, false, f.slot);
+        this.addEvo(1.8);
         this.event('plus', f.x, 0.12, f.z, 0.7);
       } else {
         if (f.type === 'merge') {
           this.upgrades++;
           this.scale = 1 + Math.min(0.64, this.upgrades * 0.13);
+          this.addPopup(this.x, 2.0, this.captainZ, '炮击 +5', 'buff');
         } else if (f.type === 'engineer') {
           this.planks = Math.min(2, this.planks + 1);
           this.notice('便桥 +1，靠近缺口自动架桥');
@@ -311,7 +441,7 @@ export class Battle {
         this.event('merge', this.x, 0.23, this.captainZ, 1, f.type);
       }
     }
-    this.deliveries = this.deliveries.filter((f) => f.progress < 1);
+    compact(this.deliveries, (f) => f.progress < 1);
   }
   crossGates() {
     for (const g of this.gates) {
@@ -488,7 +618,12 @@ export class Battle {
   advanceCrowd(dt) {
     this.rallyZ =
       this.runners.find((e) => e.alive && e.role === 'standard' && e.z > -10)?.z ?? -100;
-    const frontage = this.allies.filter((a) => a.z <= this.captainZ + 0.18);
+    const frontage = this._frontage;
+    frontage.length = 0;
+    for (let i = 0; i < this.allies.length; i++) {
+      const a = this.allies[i];
+      if (a.z <= this.captainZ + 0.18) frontage.push(a);
+    }
     for (const c of this.columns) {
       c.minX = Infinity;
       c.maxX = -Infinity;
@@ -507,7 +642,7 @@ export class Battle {
       if (reordered) c.units.sort((a, b) => b.z - a.z);
     }
     for (const e of this.runners) if (e.alive) this.moveGrunt(e, dt, frontage);
-    this.runners = this.runners.filter((e) => e.alive && (e.z < 10 || this.phase === 'clear'));
+    compact(this.runners, (e) => e.alive && (e.z < 10 || this.phase === 'clear'));
     // Issue a row only after the preceding rank has travelled its physical spacing.
     this.toNextRow -= this.worldAdvance + this.marchSpeed * dt;
     while (this.row < this.lastRow && this.toNextRow <= 0) {
@@ -542,6 +677,10 @@ export class Battle {
       return true;
     }
     this.hurt = 1;
+    if (this.combo >= 5) {
+      this.combo = 0;
+      this.comboTimer = 0;
+    }
     if (e.role === 'bomber') {
       this.event('impact', e.x, 0.1, e.z, 0.87);
       this.allies = this.allies.filter((a) => {
@@ -608,7 +747,7 @@ export class Battle {
       if (p.z > this.captainZ - 2 && p.z < this.captainZ + 2.3 && this.contact(p))
         this.event('hostileMuzzle', p.x, p.y, p.z);
     }
-    this.incoming = this.incoming.filter((p) => p.alive && p.z < 6);
+    compact(this.incoming, (p) => p.alive && p.z < 6);
   }
   pushWall(dt, wall = this.wall, half = 2.14) {
     const touches = (x, z, r) =>
@@ -660,6 +799,9 @@ export class Battle {
     if (!e.alive || (e.overBody && e.z < e.overBody.z + 0.84)) return;
     e.alive = false;
     this.score++;
+    this.addCombo(1);
+    this.addOverdrive(0.62);
+    this.addEvo(0.16);
     if (this.buffs.fever <= 0) {
       this.feverMeter += 0.21;
       if (this.feverMeter >= 100) {
@@ -759,11 +901,15 @@ export class Battle {
     }
     shot.lift = profile.lift * Math.min(1, shot.aimDistance / 9);
     this.shots.push(shot);
+    return shot;
   }
   shoot(dt) {
-    const boosted = this.buffs.fever > 0;
+    const tierDef = EVOLUTION_TIERS[(this.tier || 1) - 1];
+    const boosted = this.buffs.fever > 0 || this.overdriveActive > 0;
     const cadence =
-      (boosted ? 0.62 : this.buffs.rapid > 0 ? 0.72 : 1) * (this.chill > 0 ? 1.32 : 1);
+      ((boosted ? 0.62 : this.buffs.rapid > 0 ? 0.72 : 1) * (this.chill > 0 ? 1.32 : 1)) /
+      tierDef.fireRate;
+    const critRate = this.critChance;
     this.rocketTimer -= dt;
     if (this.rocketTimer <= 0) {
       this.rocketTimer += 0.69 * cadence;
@@ -771,8 +917,24 @@ export class Battle {
       const x = this.x + 0.295 * this.visualScale;
       const y = 1.31 * this.visualScale;
       const z = this.captainZ - 0.6 * this.visualScale;
-      const power = 1 + Math.min(1.7, this.upgrades * 0.28);
-      this.launch(x, y, z, cannonRound, power, this.cannonDamage);
+      const power = (1 + Math.min(1.7, this.upgrades * 0.28)) * tierDef.blastBonus;
+      const rocket = this.launch(x, y, z, cannonRound, power, this.cannonDamage);
+      if (rocket && critRate > 0 && this.rand() < critRate) rocket.crit = true;
+      // 进化到 Lv.4 钢铁军团时，主炮齐射附带双联等离子翼弹
+      if (this.tier >= 4) {
+        for (const side of [-1, 1]) {
+          const wing = this.launch(
+            this.x + side * 0.48 * this.visualScale,
+            y * 0.85,
+            z + 0.1,
+            plasmaRound,
+            1,
+            Math.round(this.cannonDamage * 0.28),
+            side * 0.085,
+          );
+          if (wing) wing.crit = true;
+        }
+      }
       this.event('muzzle', x, y, z, power);
     }
     this.volleyTimer -= dt;
@@ -783,19 +945,34 @@ export class Battle {
         if (a.age < 0.12) continue;
         const x = a.x + 0.13,
           z = a.z - 0.22;
-        const energy = (boosted || this.buffs.plasma > 0) && (a.slot + this.volley) % 3 === 0;
-        const profile = energy ? plasmaRound : a.slot % 4 === 1 ? pulseRound : rifleRound;
-        this.launch(x, 0.58, z, profile, 1, energy ? 6 : 2.8);
+        const isElite =
+          this.tier >= 4 ||
+          (this.tier === 3 && a.slot % 2 === 0) ||
+          (this.tier === 2 && a.slot % 4 === 0);
+        const energy =
+          (boosted || this.buffs.plasma > 0) && (a.slot + this.volley) % 3 === 0;
+        const profile = energy
+          ? plasmaRound
+          : isElite || a.slot % 4 === 1
+            ? pulseRound
+            : rifleRound;
+        const baseDmg = energy ? 6 : isElite ? 3.2 : 2.8;
+        const shot = this.launch(x, 0.58, z, profile, 1, baseDmg);
+        if (shot && critRate > 0 && this.rand() < critRate * (isElite ? 1.25 : 0.7)) {
+          shot.crit = true;
+        }
         if ((boosted || this.buffs.spread > 0) && a.slot % 2 === 0)
           this.launch(x, 0.58, z, rifleRound, 1, 2.8, (this.volley % 2 ? 1 : -1) * 0.09);
       }
       if (this.allies.length) this.event('smallShot', this.x, 0.6, 0, 0.7);
     }
     this.supportTimer -= dt;
-    if (this.buffs.drone > 0 && this.supportTimer <= 0) {
+    if ((this.buffs.drone > 0 || this.overdriveActive > 0) && this.supportTimer <= 0) {
       this.supportTimer = 0.36;
-      for (const side of [-1, 1])
-        this.launch(this.x + side * 1.15, 1.3, this.captainZ - 0.32, plasmaRound, 1, 6);
+      for (const side of [-1, 1]) {
+        const s = this.launch(this.x + side * 1.15, 1.3, this.captainZ - 0.32, plasmaRound, 1, 6);
+        if (s && this.overdriveActive > 0) s.crit = true;
+      }
     }
   }
   firstHit(shot, travel) {
@@ -833,24 +1010,49 @@ export class Battle {
       }
       first = { target: e, distance: enter };
     };
-    if (this.wall.hp > 0) check(this.wall, 2.1, 0.32);
+    const minX = Math.min(shot.x, endX);
+    const maxX = Math.max(shot.x, endX);
+    if (this.wall.hp > 0 && this.wall.z >= endZ - 0.5 && this.wall.z <= shot.z + 0.5)
+      check(this.wall, 2.1, 0.32);
     for (const p of this.features)
-      if (p.target && p.state === 'ready' && p.target.z >= endZ - 0.7 && p.target.z <= shot.z + 0.7)
+      if (
+        p.target &&
+        p.state === 'ready' &&
+        p.target.z >= endZ - 0.7 &&
+        p.target.z <= shot.z + 0.7 &&
+        p.target.x + p.half + padding >= minX &&
+        p.target.x - p.half - padding <= maxX
+      )
         check(p.target, p.half, p.depth);
     for (const card of this.gates) {
-      if (card.active && !(card.cover?.hp > 0) && card.z >= endZ - 0.36 && card.z <= shot.z + 0.36)
+      if (
+        card.active &&
+        !(card.cover?.hp > 0) &&
+        card.z >= endZ - 0.36 &&
+        card.z <= shot.z + 0.36 &&
+        card.x + cardWidth / 2 + padding >= minX &&
+        card.x - cardWidth / 2 - padding <= maxX
+      )
         check(card, cardWidth / 2, 0.15);
     }
     if (this.boss.active && !this.boss.defeated) check(this.boss, 1.26, 0.7);
     for (const c of this.columns) {
-      if (c.maxX < Math.min(shot.x, endX) - 0.42 || c.minX > Math.max(shot.x, endX) + 0.42)
-        continue;
+      if (c.maxX < minX - 0.42 || c.minX > maxX + 0.42) continue;
       for (const e of c.units) {
         if (e.z < endZ - 0.42) break;
         if (e.alive && e.z < shot.z + 0.42) check(e, 0.245, 0.23);
       }
     }
-    for (const e of this.runners) if (e.alive) check(e, 0.25 * e.size, 0.23 * e.size);
+    for (const e of this.runners) {
+      if (
+        e.alive &&
+        e.z >= endZ - 0.5 &&
+        e.z <= shot.z + 0.5 &&
+        e.x + 0.5 >= minX &&
+        e.x - 0.5 <= maxX
+      )
+        check(e, 0.25 * e.size, 0.23 * e.size);
+    }
     return first;
   }
   blast(p, z) {
@@ -901,16 +1103,30 @@ export class Battle {
       if (target.hp <= 0) this.openCard(target);
       else this.event('cardHit', shot.x, 0.6, shot.z, 0.7, target.type);
     } else if (target === this.boss) {
+      const crit = Boolean(shot.crit);
+      const mult = this.comboDamageMult * (crit ? 1.48 : 1);
+      const raw = shot.damage * (shot.profile === cannonRound ? 4.2 : 1) * mult;
+      const effective = raw * (this.boss.brace > 0.6 ? 0.55 : 1);
       this.event(
-        shot.kind === 'rocket' ? 'impact' : 'hit',
+        shot.kind === 'rocket' ? 'impact' : crit ? 'critHit' : 'hit',
         shot.x,
         shot.y,
         shot.z,
-        shot.kind === 'rocket' ? shot.power * 0.7 : 0.7,
+        shot.kind === 'rocket' ? shot.power * 0.75 : crit ? 0.95 : 0.7,
       );
-      // The captain's heavy shell punctures boss armour on a direct hit. Splash
-      // and rifle hits keep their usual damage, so lining the cannon up matters.
-      this.damageBoss(shot, shot.damage * (shot.profile === cannonRound ? 4.2 : 1));
+      if (shot.kind === 'rocket' || crit) {
+        this.addPopup(
+          shot.x + (this.rand() - 0.5) * 0.45,
+          shot.y + 0.42,
+          shot.z,
+          crit ? `${Math.round(effective)}!` : `${Math.round(effective)}`,
+          crit ? 'crit' : 'rocket',
+        );
+      }
+      this.addOverdrive(shot.kind === 'rocket' ? 2.4 : 0.35);
+      if (shot.kind === 'rocket') this.addCombo(1);
+      else if (this.comboTimer > 0) this.comboTimer = Math.max(this.comboTimer, 2.4);
+      this.damageBoss(shot, raw);
     } else if (shot.kind === 'rocket') {
       this.blast(shot, target.z);
       const b = this.boss;
@@ -921,11 +1137,15 @@ export class Battle {
       )
         this.damageBoss(shot, shot.damage * 0.65);
     } else {
+      const crit = Boolean(shot.crit);
+      const dmg = shot.damage * (crit ? 1.5 : 1);
       if (target.hp != null)
-        target.hp -=
-          shot.damage * (target.role === 'guard' && shot.profile !== plasmaRound ? 0.65 : 1);
-      if (target.hp == null || target.hp <= 0) this.kill(target, 0.72);
-      this.event('hit', shot.x, 0.45, shot.z, 0.65);
+        target.hp -= dmg * (target.role === 'guard' && shot.profile !== plasmaRound ? 0.65 : 1);
+      if (target.hp == null || target.hp <= 0) this.kill(target, crit ? 1.05 : 0.72);
+      if (crit && target.role) {
+        this.addPopup(shot.x, 0.9, shot.z, `${Math.round(dmg)}!`, 'crit');
+      }
+      this.event(crit ? 'critHit' : 'hit', shot.x, 0.45, shot.z, crit ? 0.85 : 0.65);
     }
   }
   advanceShots(dt) {
@@ -987,7 +1207,7 @@ export class Battle {
         e.vz *= 0.9;
       }
     }
-    this.falling = this.falling.filter((e) => e.t < (e.prone ? (this.overrun ? 4.9 : 2.1) : 1.02));
+    compact(this.falling, (e) => e.t < (e.prone ? (this.overrun ? 4.9 : 2.1) : 1.02));
   }
   slamSquad() {
     const b = this.boss;
@@ -1015,6 +1235,10 @@ export class Battle {
       return;
     }
     this.hurt = 1;
+    if (this.combo >= 5) {
+      this.combo = 0;
+      this.comboTimer = 0;
+    }
     this.hitGuard = 1.15;
     this.armor--;
     if (this.armor <= 0) {
@@ -1257,6 +1481,11 @@ export class Battle {
     }
     this.elapsed += dt;
     this.chill = Math.max(0, this.chill - dt);
+    this.overdriveActive = Math.max(0, this.overdriveActive - dt);
+    if (this.comboTimer > 0) {
+      this.comboTimer = Math.max(0, this.comboTimer - dt);
+      if (this.comboTimer <= 0) this.combo = 0;
+    }
     for (const key of Object.keys(this.buffs)) this.buffs[key] = Math.max(0, this.buffs[key] - dt);
     for (const card of this.gates) card.flash = Math.max(0, card.flash - dt * 7);
     this.hitGuard = Math.max(0, this.hitGuard - dt);

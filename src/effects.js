@@ -235,9 +235,9 @@ function makeAtlas() {
   return texture;
 }
 
-// Most transient elements share one material and one draw, including camera-facing
-// glyphs and transparent art laid flat on the road. The mode bit selects their basis.
-function makeSpriteBatch(scene, capacity) {
+// 大部分瞬态特效共享同一图集，拆分为常规层（烟雾/裂纹/飘字）与加法发光层（闪光/冲击波/星芒/火星），
+// 让爆炸、电浆、暴击与进化光环拥有鲜明的能量发光质感
+function makeSpriteBatch(scene, capacity, atlasTexture, additive = false, renderOrder = 8) {
   const quad = new THREE.PlaneGeometry(1, 1);
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.setIndex(quad.index);
@@ -256,11 +256,12 @@ function makeSpriteBatch(scene, capacity) {
     buffers[name] = attribute;
   }
   const material = new THREE.ShaderMaterial({
-    uniforms: { atlas: { value: makeAtlas() } },
+    uniforms: { atlas: { value: atlasTexture } },
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
     toneMapped: false,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     vertexShader: `
       attribute vec3 anchor;
       attribute vec4 sizeModeTile;
@@ -297,7 +298,7 @@ function makeSpriteBatch(scene, capacity) {
   material.forceSinglePass = true;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.frustumCulled = false;
-  mesh.renderOrder = 8;
+  mesh.renderOrder = renderOrder;
   geometry.instanceCount = 0;
   scene.add(mesh);
   let count = 0;
@@ -316,9 +317,10 @@ function makeSpriteBatch(scene, capacity) {
     flush() {
       mesh.visible = count > 0;
       geometry.instanceCount = count;
+      if (!count) return;
       for (const attribute of Object.values(buffers)) {
         attribute.clearUpdateRanges();
-        if (count) attribute.addUpdateRange(0, count * attribute.itemSize);
+        attribute.addUpdateRange(0, count * attribute.itemSize);
         attribute.needsUpdate = true;
       }
     },
@@ -390,6 +392,7 @@ function makeTraces(scene, capacity) {
     transparent: true,
     depthWrite: false,
     toneMapped: false,
+    blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     vertexShader: `
       attribute vec3 trailStart, trailEnd;
@@ -403,7 +406,7 @@ function makeTraces(scene, capacity) {
         center.y += 4.0*t*(1.0-t)*trailStyle.x;
         path.y += 4.0*(1.0-2.0*t)*trailStyle.x;
         vec3 side = normalize(cross(path, cameraPosition-center));
-        float radius = trailStyle.y * mix(0.19,1.0,smoothstep(0.0,0.83,t));
+        float radius = trailStyle.y * mix(0.24,1.15,smoothstep(0.0,0.8,t));
         vec3 vertex = center + side*(uv.y*2.0-1.0)*radius;
         gl_Position = projectionMatrix*viewMatrix*vec4(vertex,1.0);
         vUv=uv; vStyle=trailStyle.zw;
@@ -414,13 +417,15 @@ function makeTraces(scene, capacity) {
       void main() {
         float edge=abs(vUv.y*2.0-1.0);
         float pulse=step(0.5,vStyle.x)*(1.0-step(1.5,vStyle.x));
-        float flame=step(1.5,vStyle.x);
+        float flame=step(1.5,vStyle.x)*(1.0-step(2.5,vStyle.x));
+        float elite=step(2.5,vStyle.x);
         float gap=smoothstep(0.33,0.39,vUv.x)*(1.0-smoothstep(0.48,0.55,vUv.x));
-        vec3 rim=mix(vec3(.012,.39,.96),vec3(.018,.67,.62),pulse);
-        rim=mix(rim,vec3(.97,.24,.026),flame);
-        vec3 core=mix(vec3(.70,1.0,1.0),vec3(1.0,.84,.40),flame);
-        float alpha=(1.0-smoothstep(.64,1.0,edge))*smoothstep(0.0,.28,vUv.x);
-        gl_FragColor=vec4(mix(rim,core,(1.0-smoothstep(.10,.61,edge))*vUv.x),alpha*vStyle.y*(1.0-.94*pulse*gap));
+        vec3 rim=mix(vec3(.06,.56,1.0),vec3(.08,.92,.84),pulse);
+        rim=mix(rim,vec3(1.0,.36,.04),flame);
+        rim=mix(rim,vec3(1.0,.78,.14),elite);
+        vec3 core=mix(vec3(.82,1.0,1.0),vec3(1.0,.94,.62),max(flame,elite));
+        float alpha=(1.0-smoothstep(.58,1.0,edge))*smoothstep(0.0,.24,vUv.x);
+        gl_FragColor=vec4(mix(rim,core,(1.0-smoothstep(.08,.56,edge))*vUv.x),alpha*vStyle.y*(1.0-.88*pulse*gap));
         #include <colorspace_fragment>
       }`,
   });
@@ -450,21 +455,23 @@ function makeTraces(scene, capacity) {
 }
 
 export function createEffects(scene) {
-  const marks = makeSpriteBatch(scene, 650);
+  const atlas = makeAtlas();
+  const marks = makeSpriteBatch(scene, 420, atlas, false, 8);
+  const glowMarks = makeSpriteBatch(scene, 560, atlas, true, 9);
   const shots = batchOf(
     scene,
     missileGeometry(
       [
-        [-0.33, 0.004, '#1395ec'],
-        [-0.14, 0.026, '#28d7ff'],
-        [0.1, 0.039, '#b4fbff'],
-        [0.24, 0.025, '#e8ffff'],
-        [0.3, 0.002, '#ebffff'],
+        [-0.38, 0.006, '#13a8ff'],
+        [-0.16, 0.038, '#3de5ff'],
+        [0.12, 0.056, '#c4fdff'],
+        [0.28, 0.036, '#f2ffff'],
+        [0.36, 0.004, '#ffffff'],
       ],
       7,
     ),
     new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
-    320,
+    360,
     3,
   );
   const rockets = batchOf(
@@ -987,6 +994,74 @@ export function createEffects(scene) {
         for (const side of [-1, 1]) scatterSparks(x + side * 1.86, 1.04, z, 1.15, 9);
         add(sprites.flash, x, y, z, 0.38, 1.4, 0.15, { color: palette.pearl });
         return;
+      case 'evolve':
+        add(sprites.goldWave, x, 0.09, z, 0.5, 4.8, 0.56, {
+          flat: true,
+          world: false,
+          color: palette.gold,
+          priority: true,
+        });
+        add(sprites.wave, x, 0.11, z, 0.35, 3.6, 0.45, {
+          flat: true,
+          world: false,
+          color: palette.aqua,
+          priority: true,
+        });
+        add(sprites.flash, x, y + 0.9, z, 0.85, 2.8, 0.25, {
+          color: palette.gold,
+          world: false,
+          priority: true,
+        });
+        scatterSparks(x, y + 0.65, z, 1.35, 16);
+        for (let i = 0; i < 4; i++) {
+          const a = (i * TAU) / 4 + 0.4;
+          add(sprites.arrow, x + Math.cos(a) * 0.9, y + 0.45, z + Math.sin(a) * 0.7, 0.55, 0.95, 0.62, {
+            color: palette.gold,
+            vy: 2.1,
+            hold: 0.45,
+            world: false,
+            priority: true,
+          });
+        }
+        return;
+      case 'overdrive':
+        add(sprites.goldWave, x, 0.1, z, 0.6, 8.2, 0.52, {
+          flat: true,
+          world: false,
+          color: palette.gold,
+          priority: true,
+        });
+        add(sprites.wave, x, 0.12, z, 0.5, 6.4, 0.42, {
+          flat: true,
+          world: false,
+          color: palette.orange,
+          priority: true,
+        });
+        add(sprites.flash, x, y + 0.9, z, 1.1, 3.6, 0.26, {
+          color: palette.pearl,
+          world: false,
+          priority: true,
+        });
+        scatterSparks(x, y + 0.7, z, 1.7, 22);
+        return;
+      case 'critHit':
+        add(sprites.glint, x, y, z, 0.45, 1.15, 0.18, {
+          color: palette.gold,
+          angle: between(0, TAU),
+          priority: true,
+        });
+        add(sprites.flash, x, y, z, 0.32, 0.95, 0.14, { color: palette.pearl, priority: true });
+        scatterSparks(x, y, z, 0.85, 7);
+        return;
+      case 'bossEnrage':
+        add(sprites.wave, x, 0.12, z, 0.7, 7.2, 0.55, {
+          flat: true,
+          color: palette.fire,
+          priority: true,
+        });
+        add(sprites.flash, x, y + 1.1, z, 0.9, 3.4, 0.3, { color: palette.orange, priority: true });
+        scatterSparks(x, y + 0.9, z, 1.5, 18);
+        return;
       case 'discharge':
         add(sprites.wave, x, 0.1, z, 0.45, 8.5, 0.35, { flat: true, color: palette.aqua });
         add(sprites.flash, x, y + 0.45, z, 0.63, 3.4, 0.23, { color: palette.aqua });
@@ -1031,9 +1106,9 @@ export function createEffects(scene) {
           tail,
           p,
           bend,
-          rocket ? 0.093 : plasma ? 0.092 : pulse ? 0.066 : 0.052,
-          rocket ? 2 : pulse ? 1 : 0,
-          fade * 0.91,
+          rocket ? 0.128 : plasma ? 0.118 : p.crit ? 0.1 : pulse ? 0.085 : 0.068,
+          rocket ? 2 : p.crit ? 3 : pulse ? 1 : 0,
+          fade * 0.96,
         );
       }
       if (p.finished) continue;
@@ -1042,34 +1117,35 @@ export function createEffects(scene) {
       pose.quaternion.setFromUnitVectors(forward, heading);
       pose.position.set(p.x, p.y, p.z);
       if (!rocket && bulletCount < shots.instanceMatrix.count) {
-        pose.scale.set(pulse ? 1.54 : 1.13, pulse ? 1.54 : 1.13, pulse ? 0.62 : 0.83);
+        const sxy = p.crit ? 1.75 : pulse ? 1.58 : 1.2;
+        pose.scale.set(sxy, sxy, pulse ? 0.75 : 0.95);
         pose.updateMatrix();
         shots.setMatrixAt(bulletCount++, pose.matrix);
-        if (p.age < 0.045)
-          marks.write(
+        if (p.age < 0.05)
+          glowMarks.write(
             p.startX,
             p.startY,
             p.startZ,
-            0.21,
-            0.21,
+            p.crit ? 0.36 : 0.26,
+            p.crit ? 0.36 : 0.26,
             false,
             sprites.flash,
-            palette.aqua,
-            0.65 * (1 - p.age / 0.045),
+            p.crit ? palette.gold : palette.aqua,
+            0.78 * (1 - p.age / 0.05),
           );
       } else if (rocket && rocketCount < rockets.instanceMatrix.count) {
-        const size = 0.63 + Math.min(0.19, p.power * 0.055);
+        const size = 0.72 + Math.min(0.24, p.power * 0.068);
         pose.scale.setScalar(size);
         pose.updateMatrix();
         rockets.setMatrixAt(rocketCount, pose.matrix);
-        pose.scale.z *= 0.9;
+        pose.scale.z *= 1.05;
         pose.updateMatrix();
         flames.setMatrixAt(rocketCount++, pose.matrix);
         if (dt > 0 && Math.floor(p.age * 16) !== Math.floor(Math.max(0, p.age - dt) * 16)) {
-          add(sprites.smoke, tail.x, tail.y, tail.z, 0.14 * size, 0.39 * size, 0.19, {
+          add(sprites.smoke, tail.x, tail.y, tail.z, 0.16 * size, 0.44 * size, 0.22, {
             color: palette.dust,
-            alpha: 0.38,
-            vy: 0.19,
+            alpha: 0.42,
+            vy: 0.22,
             world: false,
           });
         }
@@ -1080,12 +1156,28 @@ export function createEffects(scene) {
     rockets.count = flames.count = rocketCount;
     shots.visible = bulletCount > 0;
     rockets.visible = flames.visible = rocketCount > 0;
-    if (bulletCount) shots.instanceMatrix.needsUpdate = true;
+    if (bulletCount) {
+      shots.instanceMatrix.clearUpdateRanges();
+      shots.instanceMatrix.addUpdateRange(0, bulletCount * 16);
+      shots.instanceMatrix.needsUpdate = true;
+    }
     if (rocketCount) {
+      rockets.instanceMatrix.clearUpdateRanges();
+      rockets.instanceMatrix.addUpdateRange(0, rocketCount * 16);
       rockets.instanceMatrix.needsUpdate = true;
+      flames.instanceMatrix.clearUpdateRanges();
+      flames.instanceMatrix.addUpdateRange(0, rocketCount * 16);
       flames.instanceMatrix.needsUpdate = true;
     }
   }
+
+  const isAdditiveTile = (tile) =>
+    tile === sprites.glow ||
+    tile === sprites.glint ||
+    tile === sprites.wave ||
+    tile === sprites.goldWave ||
+    tile === sprites.flash ||
+    tile === sprites.ember;
 
   function update(dt, worldAdvance, projectiles, incoming = []) {
     if (blast.visible) {
@@ -1098,22 +1190,23 @@ export function createEffects(scene) {
       if (u >= 1) blast.visible = false;
     }
     const step = clamp(dt, 0, 0.12);
-    hitCredit = Math.min(6, hitCredit + step * 21);
+    hitCredit = Math.min(8, hitCredit + step * 26);
     marks.clear();
+    glowMarks.clear();
     packProjectiles(projectiles, step);
     for (const p of incoming) {
-      marks.write(
+      glowMarks.write(
         p.x - p.vx * 0.038,
         p.y,
         p.z - p.vz * 0.038,
-        0.3,
-        0.52,
+        0.36,
+        0.58,
         false,
         sprites.glow,
         palette.fire,
-        0.8,
+        0.88,
       );
-      marks.write(p.x, p.y, p.z, 0.3, 0.34, false, sprites.glint, palette.gold, 0.98);
+      glowMarks.write(p.x, p.y, p.z, 0.34, 0.38, false, sprites.glint, palette.gold, 1.0);
     }
     for (let i = particles.length - 1; i >= 0; i--) {
       const p = particles[i];
@@ -1130,7 +1223,7 @@ export function createEffects(scene) {
       p.vy -= p.gravity * step;
       p.angle += p.spin * step;
     }
-    // Labels go last so the luminous pickup below a label will not wash its outline away.
+    // 常规批次先写裂纹/烟雾再写文字，加法发光批次独立绘制高光冲击波与火星
     for (let pass = 0; pass < 2; pass++) {
       for (const p of particles) {
         const label = p.tile === sprites.plus || p.tile === sprites.arrow;
@@ -1139,7 +1232,8 @@ export function createEffects(scene) {
           eased = 1 - (1 - progress) * (1 - progress);
         const size = THREE.MathUtils.lerp(p.start, p.end, eased);
         const fade = 1 - clamp((progress - p.hold) / (1 - p.hold), 0, 1);
-        marks.write(
+        const target = isAdditiveTile(p.tile) ? glowMarks : marks;
+        target.write(
           p.x,
           p.y,
           p.z,
@@ -1154,6 +1248,7 @@ export function createEffects(scene) {
       }
     }
     marks.flush();
+    glowMarks.flush();
     let count = 0;
     for (let i = chips.length - 1; i >= 0; i--) {
       const chip = chips[i];
@@ -1189,7 +1284,11 @@ export function createEffects(scene) {
     shards.count = count;
     shards.visible = count > 0;
     if (count) {
+      shards.instanceMatrix.clearUpdateRanges();
+      shards.instanceMatrix.addUpdateRange(0, count * 16);
       shards.instanceMatrix.needsUpdate = true;
+      shards.instanceColor.clearUpdateRanges();
+      shards.instanceColor.addUpdateRange(0, count * 3);
       shards.instanceColor.needsUpdate = true;
     }
   }
@@ -1199,7 +1298,7 @@ export function createEffects(scene) {
     particlePool.push(...particles);
     chipPool.push(...chips);
     particles.length = chips.length = 0;
-    hitCredit = 5;
+    hitCredit = 6;
     traces.flush(0);
     for (const mesh of [shots, rockets, flames, shards]) {
       mesh.count = 0;
@@ -1207,6 +1306,8 @@ export function createEffects(scene) {
     }
     marks.clear();
     marks.flush();
+    glowMarks.clear();
+    glowMarks.flush();
   }
   reset();
   return { update, burst, reset };

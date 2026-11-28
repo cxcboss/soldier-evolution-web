@@ -28,7 +28,7 @@ body {
   display: grid;
   place-items: center;
   color: var(--ivory);
-  background: #10283e url('./art/expedition-chart.webp?v=harbor-arcade1') center / cover;
+  background: #10283e url('./art/expedition-chart.webp?v=evo2') center / cover;
   -webkit-tap-highlight-color: transparent;
 }
 button {
@@ -272,8 +272,8 @@ button:active:not(:disabled) {
 }
 .cover-art {
   position: absolute;
-  inset: 0 0 clamp(115px, 17%, 195px);
-  background: #124774 url('./art/convoy-keyart.webp?v=harbor-arcade1') center 56% / cover no-repeat;
+  inset: 0 0 clamp(148px, 21%, 230px);
+  background: #124774 url('./art/convoy-keyart.webp?v=evo2') center 52% / cover no-repeat;
 }
 .cover-art::after {
   content: '';
@@ -454,23 +454,55 @@ button:active:not(:disabled) {
 }
 .buffs {
   left: var(--edge);
-  top: calc(var(--top) + 46px);
-  padding: 5px 9px;
-  max-width: calc(100% - 2 * var(--edge));
-  font-size: 12px;
-  border-left: 3px solid #47ccff;
+  top: calc(var(--top) + 74px);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-width: calc(100% - 2 * var(--edge) - 96px);
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+.buff-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 760;
+  color: #f8fcff;
+  background: linear-gradient(145deg, #163b60eb, #0e243ceb);
+  border: 1px solid #66ccff70;
+  box-shadow: 0 2px 8px #04132866;
+}
+.buff-chip[data-tone='gold'] {
+  border-color: #ffd84a99;
+  color: #fff6cf;
+  background: linear-gradient(145deg, #523b10eb, #302007eb);
+}
+.buff-chip[data-tone='ice'] {
+  border-color: #79e8ffaa;
+  color: #dcf9ff;
+  background: linear-gradient(145deg, #124663eb, #0a2a42eb);
+}
+.buff-chip small {
+  font-size: 10px;
+  opacity: 0.88;
+  font-variant-numeric: tabular-nums;
 }
 .tip {
-  top: max(13%, calc(var(--top) + 76px));
+  top: max(15.5%, calc(var(--top) + 102px));
   left: 50%;
   transform: translateX(-50%);
   width: max-content;
   max-width: 90%;
-  padding: 7px 13px;
+  padding: 7px 14px;
   border-left: 3px solid var(--amber);
   font-size: 13px;
-  font-weight: 620;
+  font-weight: 660;
   text-align: center;
+  backdrop-filter: blur(6px);
 }
 .bossbar {
   --hp-width: 82px;
@@ -897,7 +929,7 @@ button:active:not(:disabled) {
 }
 .result-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 1px;
   background: #a0afc89c;
   margin: 0;
@@ -906,8 +938,9 @@ button:active:not(:disabled) {
   overflow: hidden;
 }
 .result-stats div {
-  padding: 10px 13px;
+  padding: 9px 10px;
   background: #e6eaf6;
+  text-align: center;
 }
 .result-stats dt {
   font-size: 11px;
@@ -917,8 +950,570 @@ button:active:not(:disabled) {
 .result-stats dd {
   margin: 3px 0 0;
   font:
-    750 22px/1.1 'Arial Narrow',
+    760 21px/1.1 'Arial Narrow',
     sans-serif;
   color: #213c65;
   font-variant-numeric: tabular-nums;
+}
+
+/* ===== 全屏战斗氛围边缘光效 ===== */
+.screen-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  transition: box-shadow 0.14s ease-out;
+}
+.screen-fx[data-fx='hurt'] {
+  box-shadow: inset 0 0 65px 18px rgba(255, 48, 42, 0.56);
+}
+.screen-fx[data-fx='overdrive'] {
+  box-shadow: inset 0 0 58px 14px rgba(255, 198, 46, 0.44);
+}
+.screen-fx[data-fx='chill'] {
+  box-shadow: inset 0 0 60px 16px rgba(90, 224, 255, 0.44);
+}
+
+/* ===== 3D 投影飘浮伤害与暴击字池 ===== */
+.popups {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+.popup {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-shadow:
+    0 2px 0 #1b1021,
+    0 0 8px rgba(0, 0, 0, 0.55);
+  -webkit-text-stroke: 2px #1c1224;
+  paint-order: stroke fill;
+}
+.popup[data-kind='rocket'] {
+  font-size: 16px;
+  color: #fff2cf;
+}
+.popup[data-kind='crit'] {
+  font-size: 20px;
+  color: #ffdc47;
+  text-shadow:
+    0 2px 0 #471d08,
+    0 0 12px rgba(255, 180, 32, 0.75);
+}
+.popup[data-kind='evolve'] {
+  font-size: 21px;
+  color: #fff6a8;
+  letter-spacing: 0.04em;
+  text-shadow:
+    0 2px 0 #4a2804,
+    0 0 16px rgba(255, 212, 68, 0.9);
+}
+.popup[data-kind='buff'] {
+  font-size: 16px;
+  color: #7af5ff;
+}
+
+/* ===== 军团实时进化阶梯徽章 ===== */
+.evo-badge {
+  position: absolute;
+  z-index: 4;
+  left: var(--edge);
+  top: calc(var(--top) + 46px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 6px;
+  border-radius: 999px;
+  background: linear-gradient(150deg, #133152e8, #0b1c33eb);
+  border: 1px solid #6ecaff55;
+  box-shadow: 0 2px 8px #05132666;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 760;
+}
+.evo-lv {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #2298e6;
+  color: #f6fcff;
+  font-size: 10px;
+  font-weight: 900;
+}
+.evo-badge[data-tier='2'] {
+  border-color: #53d3ffaa;
+}
+.evo-badge[data-tier='2'] .evo-lv {
+  background: linear-gradient(135deg, #27b8ff, #187be0);
+}
+.evo-badge[data-tier='3'] {
+  border-color: #ffd34daa;
+}
+.evo-badge[data-tier='3'] .evo-lv {
+  background: linear-gradient(135deg, #ffd74a, #e08d16);
+  color: #2b1a04;
+}
+.evo-badge[data-tier='4'] {
+  border-color: #ff8e42cc;
+  box-shadow: 0 0 14px rgba(255, 166, 48, 0.45);
+}
+.evo-badge[data-tier='4'] .evo-lv {
+  background: linear-gradient(135deg, #fff18a, #ff6c26);
+  color: #2c1004;
+}
+.evo-name {
+  color: #e9f6ff;
+}
+.evo-bar {
+  width: 34px;
+  height: 4px;
+  border-radius: 3px;
+  background: #ffffff26;
+  overflow: hidden;
+}
+.evo-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #47dcff, #ffd646);
+  transform-origin: left;
+  transform: scaleX(0);
+}
+
+/* ===== 顶部 Boss 专属大气战术血条 ===== */
+.boss-hud {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: calc(var(--top) + 46px);
+  transform: translateX(-50%);
+  width: min(74%, 290px);
+  padding: 6px 10px 7px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #2b1322eb, #170a18f2);
+  border: 1px solid #ff6a5e78;
+  box-shadow: 0 6px 20px rgba(10, 4, 16, 0.52);
+  pointer-events: none;
+}
+.boss-hud-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+.boss-hud-head strong {
+  color: #fff6ec;
+  font-weight: 850;
+}
+.boss-hud-head span {
+  font-size: 10px;
+  color: #ffb894;
+}
+.boss-hud-head em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #ff3a30;
+  color: #fff6d6;
+  animation: pulseBadge 0.8s ease-in-out infinite alternate;
+}
+.boss-hud-head b {
+  margin-left: auto;
+  color: #ffd88a;
+  font-variant-numeric: tabular-nums;
+}
+.boss-hud-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #472030;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px #00000080;
+}
+.boss-hud-track i {
+  display: block;
+  height: 100%;
+  transform-origin: left;
+  background: linear-gradient(90deg, #ff9947, #ff3939 55%, #d61c3d);
+  box-shadow: 0 0 10px rgba(255, 76, 62, 0.7);
+}
+@keyframes pulseBadge {
+  from {
+    transform: scale(0.95);
+    opacity: 0.85;
+  }
+  to {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* ===== Boss 进场警报横幅 ===== */
+.boss-alert {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: 24%;
+  padding: 11px 16px;
+  text-align: center;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(165, 22, 32, 0.9) 18%,
+    rgba(165, 22, 32, 0.9) 82%,
+    transparent
+  );
+  border-block: 1px solid rgba(255, 198, 92, 0.65);
+  animation: alertSlide 0.28s ease-out;
+}
+.boss-alert small {
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.24em;
+  color: #ffd66b;
+}
+.boss-alert strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 24px;
+  font-weight: 900;
+  color: #fffdf8;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+@keyframes alertSlide {
+  from {
+    opacity: 0;
+    transform: scaleY(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+/* ===== 右侧街机连击牌 ===== */
+.combo-box {
+  position: absolute;
+  z-index: 4;
+  right: var(--edge);
+  top: calc(var(--top) + 52px);
+  min-width: 78px;
+  padding: 6px 10px 7px;
+  border-radius: 10px;
+  text-align: right;
+  pointer-events: none;
+  background: linear-gradient(150deg, #132c4be6, #0b1b32eb);
+  border: 1px solid #6ecaff60;
+  box-shadow: 0 4px 14px rgba(4, 16, 36, 0.45);
+}
+.combo-box[data-hot='1'] {
+  border-color: #63e8ffaa;
+}
+.combo-box[data-hot='2'] {
+  border-color: #ffd64acc;
+  background: linear-gradient(150deg, #4b310de8, #281706ee);
+}
+.combo-box[data-hot='3'] {
+  border-color: #ff6e3acc;
+  background: linear-gradient(150deg, #5d1c16ec, #300a10f0);
+  box-shadow: 0 0 18px rgba(255, 102, 46, 0.5);
+}
+.combo-num {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.combo-num b {
+  font:
+    900 24px/1 'Arial Narrow',
+    sans-serif;
+  color: #ffe366;
+  font-variant-numeric: tabular-nums;
+}
+.combo-num span {
+  font-size: 11px;
+  font-weight: 760;
+  color: #d9eeff;
+}
+.combo-mult {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 760;
+  color: #8ee6ff;
+}
+.combo-bar {
+  margin-top: 4px;
+  height: 3px;
+  border-radius: 99px;
+  background: #ffffff24;
+  overflow: hidden;
+}
+.combo-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff9933, #fff078);
+  transform-origin: left;
+}
+
+/* ===== 右下角「战术超载」单手大招按钮 ===== */
+.overdrive-btn {
+  position: absolute;
+  z-index: 4;
+  right: var(--edge);
+  bottom: calc(var(--bottom) + 18px);
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 30%, #1d446ee8, #0c1f38f2);
+  box-shadow:
+    0 6px 18px rgba(4, 15, 32, 0.6),
+    inset 0 0 0 1px #7bc8ff50;
+  color: #bfe8ff;
+  opacity: 0.86;
+  transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.2s ease;
+}
+.overdrive-btn .od-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.overdrive-btn .od-bg {
+  fill: none;
+  stroke: rgba(130, 192, 245, 0.22);
+  stroke-width: 4.5;
+}
+.overdrive-btn .od-arc {
+  fill: none;
+  stroke: #4cdbff;
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-dasharray: 169.65;
+  stroke-dashoffset: 169.65;
+  transition: stroke-dashoffset 0.12s linear;
+}
+.overdrive-btn .od-icon {
+  width: 24px;
+  height: 24px;
+  margin-top: -7px;
+}
+.overdrive-btn span {
+  position: absolute;
+  bottom: 11px;
+  font-size: 10px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+.overdrive-btn[data-ready='true'] {
+  opacity: 1;
+  color: #2f1a02;
+  background: radial-gradient(circle at 35% 28%, #fff69a, #ffbe1c 65%, #e6760c);
+  box-shadow:
+    0 0 24px rgba(255, 200, 48, 0.85),
+    0 6px 18px rgba(4, 15, 32, 0.65);
+  animation: odPulse 1.05s ease-in-out infinite alternate;
+}
+.overdrive-btn[data-ready='true'] .od-arc {
+  stroke: #ffffff;
+}
+.overdrive-btn[data-active='true'] {
+  opacity: 1;
+  color: #fffef0;
+  background: radial-gradient(circle at 35% 28%, #ffaa3b, #e63b22);
+  box-shadow: 0 0 24px rgba(255, 114, 48, 0.8);
+}
+@keyframes odPulse {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
+/* ===== 首页星级、军饷与军械整备入口 ===== */
+.home-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #0c2642db;
+  border: 1px solid #79c7fa4d;
+  font-size: 12px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+.meta-pill svg {
+  width: 14px;
+  height: 14px;
+}
+.meta-pill .amber {
+  color: #ffca38;
+}
+.armory-entry {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #2564a1, #154070);
+  border: 1px solid #82d3ff99;
+  color: #f3faff;
+  font-size: 12px;
+  font-weight: 760;
+  box-shadow: 0 3px 10px rgba(4, 16, 36, 0.45);
+}
+.armory-entry:hover {
+  filter: brightness(1.1);
+}
+.armory-entry svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ===== 结算星级 & 军饷 ===== */
+.result-stars {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #d8e2f3;
+}
+.star-row {
+  display: flex;
+  gap: 6px;
+}
+.star-row svg {
+  width: 24px;
+  height: 24px;
+  color: #9baac4;
+  transition: transform 0.25s ease, color 0.25s ease;
+}
+.star-row svg.lit {
+  color: #f5aa0a;
+  filter: drop-shadow(0 1px 3px rgba(245, 166, 10, 0.55));
+  transform: scale(1.08);
+}
+.reward-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #233f67;
+  color: #ffe066;
+  font-size: 13px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 军械整备升级面板 ===== */
+.armory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.armory-balance {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #1a375c;
+  color: #d9eeff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.armory-balance b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #ffd84a;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.armory-balance svg {
+  width: 16px;
+  height: 16px;
+}
+.armory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.armory-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: #eef2fa;
+  border: 1px solid #bcc8de;
+}
+.armory-info h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 850;
+  color: #162e50;
+}
+.armory-info h4 span {
+  margin-left: 6px;
+  font-size: 11px;
+  color: #2568a8;
+  font-weight: 800;
+}
+.armory-info p {
+  margin: 2px 0 0 !important;
+  font-size: 11px !important;
+  color: #4d6280 !important;
+}
+.armory-buy {
+  flex: 0 0 auto;
+  min-width: 78px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: linear-gradient(170deg, #ffdf45, #f0b112);
+  color: #352505;
+  font-size: 12px;
+  font-weight: 850;
+  text-align: center;
+  box-shadow: 0 2px 0 #9e730a;
+}
+.armory-buy:disabled {
+  cursor: default;
+  background: #c5cedf;
+  color: #657691;
+  box-shadow: none;
+  opacity: 0.9;
+}
+
+/* 战役地图按钮小星标 */
+.stage-stars {
+  display: inline-flex;
+  gap: 1px;
+  margin-top: -4px;
+  color: #f0a40a;
+  font-size: 9px;
+  line-height: 1;
 }

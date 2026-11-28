@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-    <meta name="theme-color" content="#102943" />
+    <meta name="theme-color" content="#0d2c4e" />
     <title>小兵进化 · 港区远征</title>
     <link rel="icon" href="data:," />
-    <link rel="preload" as="image" href="./art/convoy-keyart.webp?v=harbor-arcade1" />
-    <link rel="stylesheet" href="./game.css?v=harbor-arcade1" />
+    <link rel="preload" as="image" href="./art/convoy-keyart.webp?v=evo2" />
+    <link rel="stylesheet" href="./game.css?v=evo2" />
   </head>
   <body>
     <svg xmlns="http://www.w3.org/2000/svg" class="symbols" aria-hidden="true">
@@ -90,14 +90,33 @@
             stroke-linejoin="round"
           />
         </symbol>
-        <symbol id="i-chevron" viewBox="0 0 24 24">
+        <symbol id="i-bolt" viewBox="0 0 24 24">
+          <path d="M13 2 4 14h7l-1 8 10-12h-7l0-8Z" fill="currentColor" />
+        </symbol>
+        <symbol id="i-wrench" viewBox="0 0 24 24">
           <path
-            d="m9 5 7 7-7 7"
+            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"
             fill="none"
             stroke="currentColor"
-            stroke-width="2.3"
+            stroke-width="1.9"
             stroke-linecap="round"
             stroke-linejoin="round"
+          />
+        </symbol>
+        <symbol id="i-star" viewBox="0 0 24 24">
+          <path
+            d="m12 2.6 2.9 5.9 6.5.9-4.7 4.6 1.1 6.4L12 17.3l-5.8 3.1 1.1-6.4-4.7-4.6 6.5-.9L12 2.6Z"
+            fill="currentColor"
+          />
+        </symbol>
+        <symbol id="i-coin" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+          <path
+            d="M12 7v10m-2.5-7.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
           />
         </symbol>
         <symbol id="i-medal" viewBox="0 0 24 24">
@@ -139,6 +158,11 @@
         id="game"
         aria-label="战场。左右拖动换道，上下微调。也可以用方向键或 WASD 移动队伍。"
       ></canvas>
+      <!-- 全屏战斗氛围边缘光效层（受击红闪 / 狂热金边 / 霜冻冰霜） -->
+      <div id="screenFx" class="screen-fx" aria-hidden="true"></div>
+      <!-- 3D 投影飘浮伤害与暴击文字对象池 -->
+      <div id="popups" class="popups" aria-hidden="true"></div>
+
       <header class="hud">
         <div class="readings" aria-label="队伍状态">
           <button id="level" aria-label="选择关卡" title="选择关卡">
@@ -173,7 +197,42 @@
           </button>
         </div>
       </header>
+
+      <!-- 军团实时进化阶梯徽章 -->
+      <div id="evoBadge" class="evo-badge" data-tier="1" hidden>
+        <span class="evo-lv" id="evoLevel">Lv.1</span>
+        <span class="evo-name" id="evoName">登陆新兵</span>
+        <span class="evo-bar"><i id="evoFill"></i></span>
+      </div>
+
+      <!-- 顶部 Boss 专属大气战术血条横幅 -->
+      <div id="bossHud" class="boss-hud" hidden>
+        <div class="boss-hud-head">
+          <strong id="bossHudName">铁拳队长</strong>
+          <span id="bossHudSkill">震桥重拳</span>
+          <em id="bossHudRage" hidden>狂暴</em>
+          <b id="bossHudHp">4000</b>
+        </div>
+        <div class="boss-hud-track"><i id="bossHudFill"></i></div>
+      </div>
+
+      <!-- Boss 进场警示横幅 -->
+      <div id="bossAlert" class="boss-alert" hidden>
+        <small>WARNING · 首领来袭</small>
+        <strong id="bossAlertName">铁拳队长</strong>
+      </div>
+
+      <!-- 右侧街机连击倍率徽章 -->
+      <div id="comboBox" class="combo-box" hidden>
+        <div class="combo-num"><b id="comboCount">0</b><span>连击</span></div>
+        <div class="combo-mult" id="comboMult">×1.00 火力</div>
+        <div class="combo-bar"><i id="comboFill"></i></div>
+      </div>
+
+      <!-- 彩色 Buff 芯片组 -->
       <div id="buffs" class="buffs" hidden></div>
+
+      <!-- 战场投影小血条 -->
       <div
         id="bossbar"
         class="bossbar"
@@ -189,15 +248,44 @@
         <i></i><i></i><i></i>
       </div>
       <div id="tip" class="tip" hidden></div>
+
+      <!-- 右下角单手大拇指「战术超载」圆环大招按钮 -->
+      <button
+        id="overdriveBtn"
+        class="overdrive-btn"
+        aria-label="战术超载齐射"
+        title="战术超载齐射 (E / 空格)"
+        hidden
+      >
+        <svg class="od-ring" viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="od-bg" cx="32" cy="32" r="27" />
+          <circle id="odArc" class="od-arc" cx="32" cy="32" r="27" />
+        </svg>
+        <svg class="od-icon" aria-hidden="true"><use href="#i-bolt" /></svg>
+        <span id="odLabel">0%</span>
+      </button>
+
+      <!-- 首页封面 -->
       <section id="start" class="start" aria-label="出击准备">
         <div class="cover-art" aria-hidden="true"></div>
         <div class="game-title">
           <p>
-            <svg><use href="#i-mark" /></svg>港区远征
+            <svg><use href="#i-mark" /></svg>港区远征 · 进化版
           </p>
           <h1>小兵<span>进化</span></h1>
         </div>
         <div class="departure">
+          <div class="home-meta">
+            <span class="meta-pill" title="已收集星级">
+              <svg class="gold"><use href="#i-star" /></svg><b id="homeStars">0 / 90</b>
+            </span>
+            <span class="meta-pill" title="远征军饷">
+              <svg class="amber"><use href="#i-coin" /></svg><b id="homeCoins">0</b>
+            </span>
+            <button id="openArmory" class="armory-entry">
+              <svg><use href="#i-wrench" /></svg><span>军械整备</span>
+            </button>
+          </div>
           <div class="mission">
             <b id="missionNumber" aria-label="关卡">01</b>
             <div>
@@ -209,9 +297,11 @@
           <button id="startButton" class="primary" disabled>
             <svg><use href="#i-play" /></svg><span>准备中</span>
           </button>
-          <p id="instruction">左右拖动 · 下拉后撤 · 自动开火</p>
+          <p id="instruction">左右拖动 · 下拉后撤 · 满能点超载齐射</p>
         </div>
       </section>
+
+      <!-- 模态面板（暂停 / 结算 / 画面模式 / 战役地图 / 军械整备） -->
       <div id="veil" class="veil" hidden>
         <section
           id="dialog"
@@ -230,28 +320,53 @@
             </div>
           </div>
           <p id="detail"></p>
+
+          <!-- 结算星级与军饷 -->
+          <div id="resultStars" class="result-stars" hidden>
+            <div class="star-row" id="starRow">
+              <svg><use href="#i-star" /></svg>
+              <svg><use href="#i-star" /></svg>
+              <svg><use href="#i-star" /></svg>
+            </div>
+            <div class="reward-pill" id="resultReward">+0 军饷</div>
+          </div>
           <dl id="resultStats" class="result-stats" hidden>
             <div>
               <dt>击倒红兵</dt>
               <dd id="resultKills">0</dd>
             </div>
             <div>
+              <dt>最高连击</dt>
+              <dd id="resultCombo">0</dd>
+            </div>
+            <div>
               <dt>作战用时</dt>
               <dd id="resultTime">0:00</dd>
             </div>
           </dl>
+
+          <!-- 军械整备永久升级列表 -->
+          <div id="armoryPanel" class="armory-panel" hidden>
+            <div class="armory-balance">
+              <span>当前远征军饷</span>
+              <b><svg><use href="#i-coin" /></svg><span id="armoryCoins">0</span></b>
+            </div>
+            <div id="armoryList" class="armory-list"></div>
+          </div>
+
           <div id="stageList" class="stage-list" aria-label="30 关试玩" hidden></div>
           <div id="options" class="options" hidden>
             <button data-art="hybrid">混合</button><button data-art="ai">AI 贴图</button
             ><button data-art="3d">纯 3D</button>
           </div>
-          <button id="continue" class="primary">继续</button
-          ><button id="secondary" class="secondary" hidden>重新开始</button>
+          <button id="continue" class="primary">继续</button>
+          <button id="armoryAction" class="secondary" hidden>军械整备升级</button>
+          <button id="secondary" class="secondary" hidden>重新开始</button>
           <button id="selectStage" class="secondary" hidden>选择关卡</button>
         </section>
       </div>
       <div id="problem" class="problem" hidden></div>
     </main>
-    <script type="module" src="./game.js?v=harbor-arcade1"></script>
+    <script type="module" src="./game.js?v=evo2"></script>
   </body>
 </html>

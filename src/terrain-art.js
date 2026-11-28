@@ -345,51 +345,79 @@ function marker() {
   };
 }
 
-// Bank landmarks live in the shadow of the raised deck. Keep a little of
-// each original timber, ore or brass pigment, then glaze its value toward
-// the blue of the surrounding water. Interactive bridge parts stay sunlit.
-function bankFinish(geometry) {
+// 路边地标保留各章节鲜明原色，仅施加轻度大气雾融合，告别阴暗死灰感
+function bankFinish(geometry, theme) {
   const attribute = geometry.getAttribute('color');
-  const ink = new THREE.Color('#14243d');
-  const reflected = new THREE.Color('#8294ab');
+  const c = landscapes[theme] || landscapes.quay;
+  const glaze = new THREE.Color(c.fog || '#14243d');
+  const bright = new THREE.Color(c.skyHorizon || '#8294ab');
   const paint = new THREE.Color(),
-    blue = new THREE.Color();
+    tint = new THREE.Color();
   for (let i = 0; i < attribute.count; i++) {
     paint.fromBufferAttribute(attribute, i);
     const value = paint.r * 0.213 + paint.g * 0.715 + paint.b * 0.072;
-    blue.lerpColors(ink, reflected, Math.sqrt(value));
-    paint.lerp(blue, 0.79);
+    tint.lerpColors(glaze, bright, Math.min(1, Math.sqrt(value) * 1.12));
+    // 仅融入 22% 章节大气色，充分保留灯塔、青松、赤岩、冰川、黑曜石的真实辨识度
+    paint.lerp(tint, 0.22);
     attribute.setXYZ(i, paint.r, paint.g, paint.b);
   }
   return geometry;
 }
 
+/** 构造桥侧发光灯笼/能源柱的灯泡几何体（与底座分离，支持自发光纯亮材质） */
+function outlookLamps(theme) {
+  const bulbs = [];
+  for (const s of [-1, 1]) {
+    const x = s * 6.68;
+    if (theme === 'cinder') {
+      bulbs.push(
+        drum(0.24, 0.2, 0.22, '#ff9838', x, 0.34, 0, null, 10),
+        part(new THREE.OctahedronGeometry(0.22, 0), '#ffe384', x, 0.56, 0),
+      );
+    } else if (theme === 'ice') {
+      bulbs.push(part(new THREE.OctahedronGeometry(0.23, 0), '#a8ffff', x, 0.58, 0));
+    } else if (theme === 'forge') {
+      bulbs.push(slab(0.32, 0.22, 0.26, '#ffaa44', x, 0.56, 0, 0.04));
+    } else {
+      // 港区/林谷/矿峡：还原主视觉 convoy-keyart 的温暖灯笼球
+      bulbs.push(
+        drum(0.2, 0.22, 0.28, '#ffd966', x, 0.56, 0, null, 12),
+        part(new THREE.SphereGeometry(0.2, 10, 8), '#fff5b8', x, 0.7, 0),
+      );
+    }
+  }
+  return combine(bulbs);
+}
+
 function outlook(theme) {
   const c = landscapes[theme],
     bits = [];
-  // The props hang outside the traversable deck and share one instanced draw.
+  // 桥墩与主视觉同款灯柱底座，外沿挂靠并共享一次实例绘制
   for (const s of [-1, 1]) {
     const x = s * 6.68;
     bits.push(
-      slab(0.25, 4.6, 0.38, c.frame, x, -2.36, 0, 0.025),
-      strut([x, -2.4, 0], [x, -0.3, 2.1], 0.085, c.frame),
+      slab(0.32, 4.7, 0.44, c.frame, x, -2.35, 0, 0.03),
+      strut([x, -2.4, 0], [x, -0.25, 2.3], 0.09, c.frame),
+      // 桥侧灯座与灯顶帽檐
+      slab(0.56, 0.24, 0.56, c.frame, x, 0.22, 0, 0.04),
+      drum(0.26, 0.3, 0.14, gold, x, 0.36, 0, null, 10),
     );
     if (theme === 'timber') {
-      for (const dx of [0, 0.45])
-        bits.push(drum(0.13, 0.18, 2.0, '#956b48', x + s * dx, -0.4, 1.3 + dx, null, 9));
-      bits.push(strut([x, 0.32, 1.3], [x, 0.28, 4.9], 0.046, '#bda77e'));
+      for (const dx of [0, 0.48])
+        bits.push(drum(0.13, 0.18, 2.0, '#9d6e45', x + s * dx, -0.4, 1.3 + dx, null, 9));
+      bits.push(strut([x, 0.32, 1.3], [x, 0.28, 4.9], 0.05, '#d1b586'));
       for (const [h, off] of [
-        [2.1, 1.8],
-        [1.5, 3.0],
+        [2.3, 1.9],
+        [1.7, 3.2],
       ]) {
-        bits.push(drum(0.15, 0.19, 1.8, wood, x + s * off, -3.0, 1 + off, null, 7));
+        bits.push(drum(0.16, 0.21, 1.9, wood, x + s * off, -3.0, 1 + off, null, 7));
         for (let k = 0; k < 3; k++)
           bits.push(
             part(
-              new THREE.ConeGeometry(0.77 - k * 0.18, h * 0.57, 8),
-              ['#477b62', '#599170', '#79a181'][k],
+              new THREE.ConeGeometry(0.84 - k * 0.19, h * 0.58, 8),
+              ['#2d7a56', '#3d9968', '#68be7f'][k],
               x + s * off,
-              -2.65 + k * 0.45,
+              -2.62 + k * 0.48,
               1 + off,
             ),
           );
@@ -397,16 +425,20 @@ function outlook(theme) {
     } else if (theme === 'quarry' || theme === 'cinder' || theme === 'ice') {
       for (let k = 0; k < 4; k++) {
         const rock = new THREE.ConeGeometry(
-          0.58 + k * 0.13,
-          1.4 + (k % 2) * 1.3,
+          0.62 + k * 0.15,
+          1.6 + (k % 2) * 1.4,
           theme === 'ice' ? 5 : 7,
         );
         bits.push(
           part(
             rock,
-            theme === 'ice' ? ['#85bdce', '#b2dce4'][k % 2] : k % 2 ? c.frame : c.joint,
-            x + s * (1 + k * 0.55),
-            -2.5 + 0.28 * k,
+            theme === 'ice'
+              ? ['#67c7e8', '#a6eef7'][k % 2]
+              : theme === 'cinder'
+                ? ['#3d2b36', '#5c3b3d'][k % 2]
+                : ['#b8744e', '#cf8d63'][k % 2],
+            x + s * (1.1 + k * 0.6),
+            -2.45 + 0.3 * k,
             k * 1.35,
             turn(0.09 * k, 0.6 * k, s * 0.16),
           ),
@@ -414,23 +446,21 @@ function outlook(theme) {
       }
       if (theme === 'cinder')
         bits.push(
-          drum(0.23, 0.34, 0.49, '#c78047', x, -0.02, 0),
-          drum(0.18, 0.21, 0.14, '#ffcb76', x, 0.28, 0),
+          drum(0.28, 0.38, 0.44, '#59363a', x, 0.02, 0),
+          drum(0.24, 0.27, 0.12, '#ff7a33', x, 0.24, 0),
         );
     } else if (theme === 'forge') {
       bits.push(
-        drum(0.28, 0.28, 3.5, '#657f8e', x + s * 0.36, -0.53, 0.4, turn(Math.PI / 2)),
-        ring(0.32, 0.056, gold, x + s * 0.36, -0.53, 1.75),
-        slab(0.46, 0.51, 0.44, iron, x, 0.21, 0, 0.045),
+        drum(0.3, 0.3, 3.6, '#5c788a', x + s * 0.38, -0.53, 0.4, turn(Math.PI / 2)),
+        ring(0.34, 0.06, gold, x + s * 0.38, -0.53, 1.75),
+        slab(0.52, 0.54, 0.48, iron, x, 0.21, 0, 0.045),
       );
     } else {
+      // 灯塔外港：灯笼顶盖与海面红白浮标
       bits.push(
-        drum(0.18, 0.24, 0.48, '#737f85', x, 0.13, 0),
-        drum(0.27, 0.25, 0.11, gold, x, 0.42, 0),
-      );
-      bits.push(
-        drum(0.34, 0.48, 0.58, '#c16649', x + s * 1.6, -3.07, 1.6),
-        drum(0.18, 0.3, 0.23, pale, x + s * 1.6, -2.68, 1.6),
+        drum(0.06, 0.28, 0.16, '#395570', x, 0.84, 0, null, 10),
+        drum(0.38, 0.52, 0.64, '#d9533f', x + s * 1.85, -3.02, 2.2),
+        drum(0.22, 0.34, 0.26, '#fff2d2', x + s * 1.85, -2.58, 2.2),
       );
     }
   }
@@ -460,11 +490,12 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
     };
   }
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(140, 154),
+    new THREE.PlaneGeometry(160, 170),
     new THREE.ShaderMaterial({
       uniforms: {
         deep: { value: new THREE.Color() },
         crest: { value: new THREE.Color() },
+        fogColor: { value: new THREE.Color() },
         clock: { value: 0 },
         origin: { value: 0 },
         biome: { value: 0 },
@@ -473,24 +504,40 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
       vertexShader:
         'varying vec3 pos; void main(){vec4 w=modelMatrix*vec4(position,1.);pos=w.xyz;gl_Position=projectionMatrix*viewMatrix*w;}',
       fragmentShader: `${roadCurveGLSL}
-      varying vec3 pos; uniform vec3 deep, crest; uniform float clock, origin, biome;
+      varying vec3 pos; uniform vec3 deep, crest, fogColor; uniform float clock, origin, biome;
       void main(){
         vec2 q=vec2(pos.x,pos.z-origin);
-        float swell=sin(q.x*.78+clock*.30)*.9+sin(q.x*.29-q.y*.19)*.54;
-        float wave=sin(q.y*2.1+swell+clock*.56)+.45*sin(q.x*.82-q.y*1.8-clock*.31);
-        float shelf=smoothstep(-.8,.95,sin(q.x*.27+q.y*.21)+.47*sin(q.x*.5-q.y*.24));
-        float foam=smoothstep(1.17,1.44,wave)*(.06+.13*shelf);
-        float gleam=.05+.11*shelf+foam;
-        if(biome>1.5){
-          float seam=abs(sin(q.x*.68+sin(q.y*.91)+q.y*.64));
-          gleam=.035+.09*shelf+(.28+.115*sin(clock*.9+q.y*.7))*(1.-smoothstep(0.,.085,seam));
-        }else if(biome>.5){
-          float seam=abs(sin(q.x*.82+q.y*.6+sin(q.y*.55)));
-          gleam=.10+.17*shelf+.12*(1.-smoothstep(0.,.075,seam))+foam*.2;
-        }
+        float swell=sin(q.x*.65+clock*.55)*.95+sin(q.x*.28-q.y*.22+clock*.35)*.62;
+        float wave=sin(q.y*1.95+swell+clock*.95)+.55*sin(q.x*.92-q.y*1.65-clock*.52);
+        float shelf=smoothstep(-.75,.95,sin(q.x*.24+q.y*.19)+.48*sin(q.x*.46-q.y*.25));
+        float sparkle=pow(smoothstep(.88,1.52,wave),2.2)*(.32+.45*shelf);
         float shore=abs(q.x-lateralBend(pos.z));
-        vec3 c=mix(deep,crest,clamp(gleam,0.,1.));
-        c*=mix(.62,1.,smoothstep(5.6,9.7,shore));
+        // 紧贴大桥护栏外缘的白色海浪拍岸泡沫 / 熔岩亮边
+        float bankFoam=smoothstep(8.3,6.65,shore)*smoothstep(6.1,6.75,shore)*(.42+.35*sin(q.y*2.4+clock*2.2));
+        vec3 c;
+        if(biome>1.5){
+          // 熔心裂谷：翻涌沸腾的炽热金橙熔岩河与冷却黑曜浮壳
+          float crust=abs(sin(q.x*.56+sin(q.y*.78+clock*.32)+q.y*.52));
+          float vein=1.-smoothstep(.0,.18,crust);
+          float pulse=.72+.28*sin(clock*1.9+q.y*.65+q.x*.4);
+          vec3 magma=mix(vec3(1.,.28,.04),vec3(1.,.86,.32),vein*pulse);
+          c=mix(deep,magma,clamp(.14+.16*shelf+vein*.92+bankFoam*.45,0.,1.));
+        }else if(biome>.5){
+          // 极光冰河：清透冰蓝海面与浮冰晶棱高光
+          float seam=abs(sin(q.x*.72+q.y*.52+sin(q.y*.48)));
+          float floe=1.-smoothstep(.0,.11,seam);
+          c=mix(deep,crest,clamp(.16+.24*shelf+floe*.42+sparkle*.65+bankFoam*.6,0.,1.));
+          c+=vec3(.78,.98,1.)*sparkle*.38;
+        }else{
+          // 港口/林谷/矿峡/船坞：澄澈动态水波与夕阳波光闪烁
+          float gleam=.14+.26*shelf+sparkle*.85+bankFoam*.75;
+          c=mix(deep,crest,clamp(gleam,0.,1.));
+          c+=vec3(1.,.96,.85)*(sparkle*.28+bankFoam*.25);
+        }
+        // 桥底轻投影 + 远景自然融入天际雾色
+        c*=mix(.58,1.,smoothstep(5.2,8.4,shore));
+        float distFade=smoothstep(-28.,-105.,pos.z);
+        c=mix(c,fogColor,distFade*.85);
         gl_FragColor=vec4(c,1.);
       #include <colorspace_fragment>
       }`,
@@ -502,9 +549,11 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
   root.add(water);
   const terrainAssets = new Map(),
     scenic = new Map(),
+    lampBatches = new Map(),
     landmarks = new Map(),
     live = new Map(),
     matrix = new THREE.Matrix4();
+  const lampMaterial = new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false });
   let region, features;
   const chainGeo = new THREE.CylinderGeometry(0.035, 0.035, 1, 8),
     chainMat = new THREE.MeshPhongMaterial({ color: 0xab9b79 });
@@ -574,24 +623,31 @@ export function createTerrainArt(root, curve = new THREE.Vector4()) {
     if (theme !== region) {
       if (region) {
         scenic.get(region).visible = false;
+        lampBatches.get(region).visible = false;
         landmarks.get(region).visible = false;
       }
       region = theme;
       if (!scenic.has(theme)) {
-        const m = new THREE.InstancedMesh(bankFinish(outlook(theme)), metal, 10);
+        const m = new THREE.InstancedMesh(bankFinish(outlook(theme), theme), metal, 10);
         m.frustumCulled = false;
-        const landmark = new THREE.InstancedMesh(bankFinish(roadside(theme)), metal, 3);
+        const lamps = new THREE.InstancedMesh(outlookLamps(theme), lampMaterial, 10);
+        lamps.frustumCulled = false;
+        lamps.instanceMatrix = m.instanceMatrix;
+        const landmark = new THREE.InstancedMesh(bankFinish(roadside(theme), theme), metal, 3);
         landmark.frustumCulled = false;
         landmarks.set(theme, landmark);
         root.add(landmark);
         scenic.set(theme, m);
-        root.add(m);
+        lampBatches.set(theme, lamps);
+        root.add(m, lamps);
       }
       scenic.get(theme).visible = true;
+      lampBatches.get(theme).visible = true;
       landmarks.get(theme).visible = true;
       water.material.uniforms.biome.value = theme === 'cinder' ? 2 : theme === 'ice' ? 1 : 0;
       water.material.uniforms.deep.value.set(landscapes[theme].deep);
       water.material.uniforms.crest.value.set(landscapes[theme].glint);
+      water.material.uniforms.fogColor.value.set(landscapes[theme].fog);
     }
     const landmark = landmarks.get(theme);
     for (let i = 0; i < landmark.count; i++)
